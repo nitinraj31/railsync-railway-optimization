@@ -17,6 +17,7 @@ import {
   Layers,
   Radio,
   Users,
+  Leaf,
 } from 'lucide-react';
 import { UserRole } from '../../types';
 
@@ -110,6 +111,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Radio,
       badge: 'WORLD 1ST',
       badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+      allowedRoles: [
+        'SUPER_ADMIN',
+        'RAILWAY_PLANNER',
+        'ENGINEERING_OFFICER',
+        'ST_OFFICER',
+        'TRACTION_OFFICER',
+        'CONTROL_ROOM',
+        'VIEWER',
+      ],
+      presentationAllowed: true,
+    },
+    {
+      id: 'digital_twin',
+      label: 'Corridor Digital Twin',
+      icon: Train,
+      badge: 'SIM',
+      badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+      allowedRoles: [
+        'SUPER_ADMIN',
+        'RAILWAY_PLANNER',
+        'ENGINEERING_OFFICER',
+        'ST_OFFICER',
+        'TRACTION_OFFICER',
+        'CONTROL_ROOM',
+        'VIEWER',
+      ],
+      presentationAllowed: true,
+    },
+    {
+      id: 'sustainability',
+      label: 'Sustainability ESG',
+      icon: Leaf,
+      badge: 'ECO',
+      badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
       allowedRoles: [
         'SUPER_ADMIN',
         'RAILWAY_PLANNER',

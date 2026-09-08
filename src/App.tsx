@@ -193,6 +193,24 @@ export default function App() {
 
   // Navigation router handler with optional item payload
   const handleNavigate = (screen: string, itemData?: any) => {
+    if (screen === 'digital_twin') {
+      setCurrentScreen('command_center');
+      setTimeout(() => {
+        const el = document.getElementById('corridor-digital-twin-module');
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+      return;
+    }
+
+    if (screen === 'sustainability') {
+      setCurrentScreen('command_center');
+      setTimeout(() => {
+        const el = document.getElementById('sustainability-dashboard-module');
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+      return;
+    }
+
     setCurrentScreen(screen);
     if (screen === 'conflicts' && itemData?.blockId) {
       setTargetConflictBlockId(itemData.blockId);

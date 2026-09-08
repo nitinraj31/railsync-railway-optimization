@@ -27,6 +27,9 @@ import {
   Clock,
   MapPin,
   FileText,
+  HeartPulse,
+  Moon,
+  TrendingDown,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -56,6 +59,8 @@ import {
   autoBalanceCorridors,
   resetResourceFleet,
 } from '../../services/api';
+import { crewFatigueService } from '../../services/crewFatigueService';
+import { CrewFatiguePredictorModule } from './CrewFatiguePredictorModule';
 
 interface ResourceAllocationScreenProps {
   corridors: Corridor[];
@@ -63,13 +68,13 @@ interface ResourceAllocationScreenProps {
   onNavigateToConflicts?: () => void;
   initialResourceType?: string;
   initialCorridorId?: string;
-  initialTab?: 'MACHINERY' | 'MANPOWER';
+  initialTab?: 'MACHINERY' | 'MANPOWER' | 'FATIGUE';
   initialShift?: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
 }
 
 type ChartViewMode = 'MANPOWER_TRADES' | 'MACHINERY_CLASSES' | 'UTILIZATION_LOAD';
 type ShiftType = 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
-type ActiveTab = 'MACHINERY' | 'MANPOWER';
+type ActiveTab = 'MACHINERY' | 'MANPOWER' | 'FATIGUE';
 
 export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> = ({
   corridors,
@@ -85,6 +90,9 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
     if (initialTab) return initialTab;
     if (initialResourceType) {
       const lower = initialResourceType.toLowerCase();
+      if (lower.includes('fatigue') || lower.includes('rest') || lower.includes('circadian') || lower.includes('incident') || lower.includes('rotation')) {
+        return 'FATIGUE';
+      }
       if (lower.includes('gang') || lower.includes('pwi') || lower.includes('trd gang') || lower.includes('crew') || lower.includes('manpower') || lower.includes('signal') || lower.includes('linesm') || lower.includes('lookout')) {
         return 'MANPOWER';
       }
@@ -118,6 +126,7 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
   const [searchQuery, setSearchQuery] = useState<string>(initialResourceType || '');
   const [selectedCorridorId, setSelectedCorridorId] = useState<string | null>(initialCorridorId || null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [fatigueSummary, setFatigueSummary] = useState(() => crewFatigueService.computeAnalysis());
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'warn' } | null>(
     initialResourceType
       ? { message: `Filtered view for resource type: "${initialResourceType}"`, type: 'info' }
@@ -163,6 +172,7 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
       setMachinery(mList);
       setGangs(gList);
       setMetrics(cMetrics);
+      setFatigueSummary(crewFatigueService.computeAnalysis());
     } catch (err) {
       console.error('Failed to load resource data', err);
     } finally {
@@ -427,9 +437,30 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
           {/* Action Toolbar */}
           <div className="flex flex-wrap items-center gap-2">
             <button
+              id="header-crew-fatigue-btn"
+              onClick={() => {
+                setActiveTab('FATIGUE');
+                const el = document.getElementById('fleet-roster-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer ${
+                activeTab === 'FATIGUE'
+                  ? 'bg-rose-950/90 text-rose-200 border-rose-600 shadow-lg shadow-rose-950/60'
+                  : 'bg-slate-900 hover:bg-slate-800 text-rose-300 hover:text-rose-200 border-rose-900/60'
+              }`}
+              title="Analyze shift schedules against historical safety incidents and optimize rest rotations"
+            >
+              <HeartPulse className="w-4 h-4 text-rose-400 animate-pulse" />
+              <span>Crew Fatigue Predictor</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800 font-mono">
+                {fatigueSummary.criticalFatigueCount > 0 ? `${fatigueSummary.criticalFatigueCount} CRITICAL` : 'AI'}
+              </span>
+            </button>
+
+            <button
               onClick={handleAutoBalance}
               disabled={isLoading}
-              className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-indigo-950/50 transition-colors"
+              className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-indigo-950/50 transition-colors cursor-pointer"
               title="Mobilize standby resources to corridors with high workload"
             >
               <Sparkles className="w-4 h-4" />
@@ -443,7 +474,7 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
                 setTargetCorridorId('C001');
                 setIsReallocateModalOpen(true);
               }}
-              className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-xs font-medium border border-sky-900/60 flex items-center gap-1.5 transition-colors"
+              className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-xs font-medium border border-sky-900/60 flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <ArrowRightLeft className="w-3.5 h-3.5" />
               <span>Mobilize Resource</span>
@@ -452,7 +483,7 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
             <button
               onClick={handleResetBaseline}
               disabled={isLoading}
-              className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition-colors"
+              className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition-colors cursor-pointer"
               title="Reset fleet positions to standard baseline"
             >
               <RotateCcw className="w-4 h-4" />
@@ -519,7 +550,7 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
       </div>
 
       {/* TOP STRATEGIC KPI CARDS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
         {/* KPI 1: Active Manpower */}
         <div className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between">
           <div>
@@ -593,6 +624,49 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
           </div>
           <div className="p-3 rounded-lg bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
             <ShieldCheck className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* KPI 6: Crew Fatigue Risk Index (Interactive) */}
+        <div
+          id="kpi-crew-fatigue-card"
+          onClick={() => {
+            setActiveTab('FATIGUE');
+            const el = document.getElementById('fleet-roster-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className={`p-4 rounded-xl border shadow-md flex items-center justify-between transition-all cursor-pointer ${
+            activeTab === 'FATIGUE'
+              ? 'border-rose-500 bg-[#170a1c] ring-1 ring-rose-500/50'
+              : 'border-sky-950/80 bg-[#0e172e] hover:border-rose-900/80'
+          }`}
+          title="Click to inspect crew fatigue profiles & suggested rest rotations"
+        >
+          <div>
+            <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider flex items-center gap-1">
+              <span>Crew Fatigue</span>
+              <span className="text-[9px] px-1 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800">
+                AI
+              </span>
+            </div>
+            <div className="text-2xl font-bold font-mono mt-1 flex items-baseline gap-1">
+              <span className={fatigueSummary.averageFatigueScore > 40 ? 'text-rose-400' : 'text-emerald-400'}>
+                {fatigueSummary.averageFatigueScore}%
+              </span>
+              <span className="text-[10px] text-slate-400 font-normal">
+                {fatigueSummary.optimizedRotationsApplied ? 'Rest Active' : 'Night Peak'}
+              </span>
+            </div>
+            <div className="text-[10px] font-mono mt-0.5 flex items-center gap-1 text-slate-400">
+              <span className={fatigueSummary.criticalFatigueCount > 0 ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
+                {fatigueSummary.criticalFatigueCount} Critical
+              </span>
+              <span className="text-slate-500">•</span>
+              <span className="text-sky-400">AI Optimize →</span>
+            </div>
+          </div>
+          <div className="p-3 rounded-lg bg-rose-950/60 text-rose-400 border border-rose-800/60">
+            <HeartPulse className="w-5 h-5 animate-pulse" />
           </div>
         </div>
       </div>
@@ -1013,14 +1087,14 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
       </div>
 
       {/* FLEET ROSTERS & INVENTORY TABLE */}
-      <div className="bg-[#0e172e] rounded-xl border border-sky-950/80 shadow-md overflow-hidden">
+      <div id="fleet-roster-section" className="bg-[#0e172e] rounded-xl border border-sky-950/80 shadow-md overflow-hidden">
         {/* Table Top Bar */}
         <div className="p-4 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
           {/* Tab Switcher */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setActiveTab('MACHINERY')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
                 activeTab === 'MACHINERY'
                   ? 'bg-purple-600 text-white shadow-sm'
                   : 'bg-slate-800/60 text-slate-400 hover:text-slate-200'
@@ -1032,7 +1106,7 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
 
             <button
               onClick={() => setActiveTab('MANPOWER')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
                 activeTab === 'MANPOWER'
                   ? 'bg-sky-600 text-white shadow-sm'
                   : 'bg-slate-800/60 text-slate-400 hover:text-slate-200'
@@ -1040,6 +1114,22 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
             >
               <Users className="w-4 h-4" />
               <span>Maintenance Gangs Roster ({gangs.length})</span>
+            </button>
+
+            <button
+              id="tab-crew-fatigue-predictor"
+              onClick={() => setActiveTab('FATIGUE')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
+                activeTab === 'FATIGUE'
+                  ? 'bg-rose-700 text-white shadow-sm'
+                  : 'bg-slate-800/60 text-rose-300 hover:text-rose-200 hover:bg-slate-800'
+              }`}
+            >
+              <HeartPulse className="w-4 h-4 text-rose-400 animate-pulse" />
+              <span>Crew Fatigue Predictor</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800 font-mono">
+                {fatigueSummary.criticalFatigueCount > 0 ? `${fatigueSummary.criticalFatigueCount} CRITICAL` : 'OPTIMIZED'}
+              </span>
             </button>
           </div>
 
@@ -1104,10 +1194,18 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
           </div>
         </div>
 
-        {/* Table Content */}
-        <div className="overflow-x-auto">
-          {activeTab === 'MACHINERY' ? (
-            <table className="w-full text-left border-collapse text-xs">
+        {/* Table / Module Content */}
+        {activeTab === 'FATIGUE' ? (
+          <div className="p-4 md:p-6 bg-[#080d1e]">
+            <CrewFatiguePredictorModule
+              onRosterUpdated={reloadData}
+              initialCorridorFilter={filterCorridor !== 'ALL' ? filterCorridor : undefined}
+            />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            {activeTab === 'MACHINERY' ? (
+              <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-mono text-[11px] uppercase">
                   <th className="p-3">Machine ID & Type</th>
@@ -1292,6 +1390,7 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
             </table>
           )}
         </div>
+      )}
       </div>
 
       {/* STATUTORY IRTMM RULES & CAPACITY PRINCIPLES BANNER */}

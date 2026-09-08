@@ -16,6 +16,7 @@ import {
   ChevronRight,
   PlayCircle,
   TrendingUp,
+  TrendingDown,
   Activity,
   Gauge,
   Zap,
@@ -30,6 +31,7 @@ import {
   Filter,
   Info,
   Radio,
+  Leaf,
 } from 'lucide-react';
 import {
   BarChart,
@@ -46,10 +48,14 @@ import {
   ComposedChart,
   Line,
   ReferenceLine,
+  AreaChart,
+  Area,
 } from 'recharts';
 import { ValidationResult, Corridor, OptimizedBlock, BlockRequest, Defect } from '../../types';
 import { mockStore } from '../../services/api';
 import { PredictiveMaintenancePanel } from '../predictive/PredictiveMaintenancePanel';
+import { SustainabilityDashboard } from '../sustainability/SustainabilityDashboard';
+import { CorridorDigitalTwin } from '../digitaltwin/CorridorDigitalTwin';
 
 interface CommandCenterProps {
   onNavigate: (screen: string, itemData?: any) => void;
@@ -218,6 +224,29 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
     (c) => c.turnaroundTime > turnaroundThreshold
   ).length;
 
+  // 7-Day Historical Trend of Block Turnaround Times (Sparkline Dataset)
+  const sevenDayTurnaroundTrend = [
+    { day: 'Day 1', date: '02 Sep', fullDate: 'Wednesday, 02 Sep 2026', turnaroundTime: 86, target: turnaroundThreshold, completedBlocks: 38, punctuality: 94.7 },
+    { day: 'Day 2', date: '03 Sep', fullDate: 'Thursday, 03 Sep 2026', turnaroundTime: 82, target: turnaroundThreshold, completedBlocks: 41, punctuality: 95.1 },
+    { day: 'Day 3', date: '04 Sep', fullDate: 'Friday, 04 Sep 2026', turnaroundTime: 88, target: turnaroundThreshold, completedBlocks: 36, punctuality: 91.7 },
+    { day: 'Day 4', date: '05 Sep', fullDate: 'Saturday, 05 Sep 2026', turnaroundTime: 79, target: turnaroundThreshold, completedBlocks: 44, punctuality: 97.7 },
+    { day: 'Day 5', date: '06 Sep', fullDate: 'Sunday, 06 Sep 2026', turnaroundTime: 71, target: turnaroundThreshold, completedBlocks: 46, punctuality: 100.0 },
+    { day: 'Day 6', date: '07 Sep', fullDate: 'Monday, 07 Sep 2026', turnaroundTime: 78, target: turnaroundThreshold, completedBlocks: 39, punctuality: 97.4 },
+    { day: 'Day 7', date: '08 Sep (Today)', fullDate: 'Tuesday, 08 Sep 2026 (Live)', turnaroundTime: overallAvgTurnaround, target: turnaroundThreshold, completedBlocks: 42, punctuality: 97.6 },
+  ];
+
+  const avg7DayTurnaround = Number(
+    (
+      sevenDayTurnaroundTrend.reduce((sum, item) => sum + item.turnaroundTime, 0) /
+      sevenDayTurnaroundTrend.length
+    ).toFixed(1)
+  );
+  const best7DayTurnaround = Math.min(...sevenDayTurnaroundTrend.map((d) => d.turnaroundTime));
+  const peak7DayTurnaround = Math.max(...sevenDayTurnaroundTrend.map((d) => d.turnaroundTime));
+  const trendVelocityDiff = overallAvgTurnaround - sevenDayTurnaroundTrend[0].turnaroundTime;
+  const trendVelocityPct = Number(((trendVelocityDiff / sevenDayTurnaroundTrend[0].turnaroundTime) * 100).toFixed(1));
+  const total7DayBlocks = sevenDayTurnaroundTrend.reduce((sum, item) => sum + item.completedBlocks, 0);
+
   // Handler for clicking efficiency visualization items to navigate to Resource Allocation screen filtered by resource type
   const handleEfficiencyBarClick = (data: any) => {
     if (!data) return;
@@ -322,6 +351,47 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
               <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-300 font-mono">
                 Resource Allocation →
               </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Custom Tooltip for 7-Day Block Turnaround Sparkline Chart
+  const renderSparklineTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const data = payload[0]?.payload;
+      if (!data) return null;
+      const variance = turnaroundThreshold - data.turnaroundTime;
+      const isOptimal = variance >= 0;
+      return (
+        <div className="bg-[#091325] border border-sky-600/70 p-3 rounded-lg shadow-2xl text-xs font-mono min-w-[220px] z-50">
+          <div className="font-bold text-white text-xs mb-1.5 flex items-center justify-between border-b border-slate-800 pb-1.5">
+            <span className="truncate">{data.fullDate || data.day}</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800 shrink-0">
+              {data.date}
+            </span>
+          </div>
+          <div className="space-y-1.5 text-slate-300">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Turnaround Time:</span>
+              <span className="font-bold text-sky-400">{data.turnaroundTime} mins</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Target ({turnaroundThreshold}m):</span>
+              <span className={isOptimal ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                {isOptimal ? `-${variance}m under target` : `+${Math.abs(variance)}m OVER TARGET`}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Completed Blocks:</span>
+              <span className="text-slate-200 font-bold">{data.completedBlocks} blocks</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Handover Punctuality:</span>
+              <span className="text-emerald-400 font-bold">{data.punctuality}%</span>
             </div>
           </div>
         </div>
@@ -549,6 +619,36 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
             <span>Shadow-Block Engine</span>
             <span className="px-1.5 py-0.2 rounded text-[9px] bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 uppercase font-bold">
               World 1st
+            </span>
+          </button>
+          <button
+            id="jump-to-digital-twin-btn"
+            onClick={() => {
+              const el = document.getElementById('corridor-digital-twin-module');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-cyan-950/90 hover:bg-cyan-900 border border-cyan-500/60 text-cyan-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-cyan-950/50 transition-colors font-mono"
+            title="Jump to Corridor Digital Twin & Real-Time Simulator"
+          >
+            <Train className="w-4 h-4 text-cyan-400 animate-pulse" />
+            <span>Digital Twin</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 uppercase font-bold">
+              Live
+            </span>
+          </button>
+          <button
+            id="jump-to-sustainability-btn"
+            onClick={() => {
+              const el = document.getElementById('sustainability-dashboard-module');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-600/60 text-emerald-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-emerald-950/50 transition-colors font-mono"
+            title="Jump to Sustainability & Carbon Reduction Dashboard"
+          >
+            <Leaf className="w-4 h-4 text-emerald-400 animate-pulse" />
+            <span>Sustainability</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-emerald-500/20 text-emerald-200 border border-emerald-400/40 uppercase font-bold">
+              Eco
             </span>
           </button>
           <button
@@ -919,27 +1019,63 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
               ? 'bg-rose-950/40 border-rose-600/70 shadow-sm shadow-rose-900/30'
               : 'bg-slate-900/70 border-slate-800/90'
           }`}>
-            <div className="flex items-center justify-between text-slate-400 text-xs font-mono">
-              <span>Avg Turnaround Time</span>
-              {isTurnaroundBreached ? (
-                <BellRing className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
-              ) : (
-                <Clock className="w-3.5 h-3.5 text-sky-400" />
-              )}
-            </div>
-            <div className="mt-2 flex items-baseline gap-1.5">
-              <span className={`text-2xl font-black font-mono ${
-                isTurnaroundBreached ? 'text-rose-300' : 'text-sky-300'
+            <div>
+              <div className="flex items-center justify-between text-slate-400 text-xs font-mono">
+                <span>Avg Turnaround Time</span>
+                {isTurnaroundBreached ? (
+                  <BellRing className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+                ) : (
+                  <Clock className="w-3.5 h-3.5 text-sky-400" />
+                )}
+              </div>
+              <div className="mt-2 flex items-baseline gap-1.5">
+                <span className={`text-2xl font-black font-mono ${
+                  isTurnaroundBreached ? 'text-rose-300' : 'text-sky-300'
+                }`}>
+                  {overallAvgTurnaround}
+                </span>
+                <span className="text-xs font-mono text-slate-400">min / block</span>
+              </div>
+              <div className={`mt-1 flex items-center gap-1 text-[11px] font-mono ${
+                isTurnaroundBreached ? 'text-rose-400 font-bold' : 'text-emerald-400'
               }`}>
-                {overallAvgTurnaround}
-              </span>
-              <span className="text-xs font-mono text-slate-400">min / block</span>
+                <span>{isTurnaroundBreached ? `+${turnaroundDiff}m OVER` : `-${turnaroundDiff}m UNDER`}</span>
+                <span className="text-slate-500 font-sans">{turnaroundThreshold}m threshold</span>
+              </div>
             </div>
-            <div className={`mt-1 flex items-center gap-1 text-[11px] font-mono ${
-              isTurnaroundBreached ? 'text-rose-400 font-bold' : 'text-emerald-400'
-            }`}>
-              <span>{isTurnaroundBreached ? `+${turnaroundDiff}m OVER` : `-${turnaroundDiff}m UNDER`}</span>
-              <span className="text-slate-500 font-sans">{turnaroundThreshold}m threshold</span>
+
+            {/* Sparkline in Tile 1 */}
+            <div className="mt-2.5 pt-2 border-t border-slate-800/70">
+              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+                <span className="text-slate-500">7-Day Trend</span>
+                <span className={`flex items-center gap-0.5 font-semibold ${trendVelocityDiff <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {trendVelocityDiff <= 0 ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+                  {trendVelocityDiff <= 0 ? `${trendVelocityDiff}m` : `+${trendVelocityDiff}m`} ({trendVelocityPct}%)
+                </span>
+              </div>
+              <div className="h-9 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={sevenDayTurnaroundTrend} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+                    <defs>
+                      <linearGradient id="tileTurnaroundGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={isTurnaroundBreached ? '#f43f5e' : '#38bdf8'} stopOpacity={0.45} />
+                        <stop offset="100%" stopColor={isTurnaroundBreached ? '#f43f5e' : '#38bdf8'} stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <Tooltip content={renderSparklineTooltip} />
+                    <Area
+                      type="monotone"
+                      dataKey="turnaroundTime"
+                      stroke={isTurnaroundBreached ? '#f43f5e' : '#38bdf8'}
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#tileTurnaroundGrad)"
+                      dot={{ r: 2, fill: isTurnaroundBreached ? '#f43f5e' : '#38bdf8' }}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
@@ -992,6 +1128,180 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
               <Zap className="w-3 h-3" />
               <span>Zero idle machine hours</span>
             </div>
+          </div>
+        </div>
+
+        {/* 7-DAY BLOCK TURNAROUND TIME SPARKLINE CHART CARD */}
+        <div id="seven-day-turnaround-sparkline-panel" className="bg-slate-900/60 p-4 rounded-xl border border-sky-900/50 space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800">
+            <div className="flex items-start gap-2.5">
+              <div className="p-1.5 rounded-lg bg-sky-950/90 border border-sky-800/80 text-sky-400 shrink-0 mt-0.5">
+                <Activity className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs md:text-sm font-mono font-bold text-slate-100 uppercase tracking-wide">
+                    7-Day Trend: Block Turnaround Times
+                  </h4>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800 font-semibold flex items-center gap-1">
+                    <TrendingDown className="w-3 h-3 text-emerald-400" />
+                    SPARKLINE ANALYSIS
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Continuous multi-day turnaround performance (minutes per block) across all active corridors vs RDSO benchmark ceiling
+                </p>
+              </div>
+            </div>
+
+            {/* Quick KPI Stat Chips */}
+            <div className="flex items-center gap-2 flex-wrap text-xs font-mono">
+              <div className="px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700/80 text-slate-300 flex items-center gap-1.5">
+                <span className="text-slate-400 text-[10px]">7D AVG:</span>
+                <span className="font-bold text-white">{avg7DayTurnaround}m</span>
+              </div>
+              <div className="px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700/80 text-slate-300 flex items-center gap-1.5">
+                <span className="text-slate-400 text-[10px]">BEST:</span>
+                <span className="font-bold text-emerald-300">{best7DayTurnaround}m</span>
+              </div>
+              <div className="px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700/80 text-slate-300 flex items-center gap-1.5">
+                <span className="text-slate-400 text-[10px]">PEAK:</span>
+                <span className="font-bold text-amber-300">{peak7DayTurnaround}m</span>
+              </div>
+              <div className={`px-2.5 py-1 rounded-md border flex items-center gap-1 font-bold ${
+                trendVelocityDiff <= 0
+                  ? 'bg-emerald-950/70 border-emerald-700/70 text-emerald-300'
+                  : 'bg-rose-950/70 border-rose-700/70 text-rose-300'
+              }`}>
+                {trendVelocityDiff <= 0 ? <TrendingDown className="w-3.5 h-3.5 text-emerald-400" /> : <TrendingUp className="w-3.5 h-3.5 text-rose-400" />}
+                <span>{trendVelocityDiff <= 0 ? `${trendVelocityDiff}m` : `+${trendVelocityDiff}m`} ({trendVelocityPct}%)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Sparkline Graphic Visualization with Threshold Reference */}
+          <div className="bg-[#0b1329]/80 p-3 rounded-lg border border-slate-800/90">
+            <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-2 px-1">
+              <span className="flex items-center gap-1.5 text-slate-300">
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block" />
+                <span>7-Day Block Turnaround (Rolling Duration)</span>
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="flex items-center gap-1 text-rose-400">
+                  <span className="w-3 h-0.5 bg-rose-500 inline-block border-t border-dashed" />
+                  <span>Target Limit: {turnaroundThreshold}m</span>
+                </span>
+                <span className="text-slate-500">|</span>
+                <span className="text-slate-400 font-sans">{total7DayBlocks} Total Blocks Executed</span>
+              </span>
+            </div>
+
+            <div className="h-32 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={sevenDayTurnaroundTrend}
+                  margin={{ top: 12, right: 18, left: -20, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="turnaroundSparklineGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.45} />
+                      <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    stroke="#64748b"
+                    fontSize={11}
+                    fontFamily="monospace"
+                    tickLine={false}
+                    axisLine={{ stroke: '#334155' }}
+                  />
+                  <YAxis
+                    stroke="#64748b"
+                    fontSize={11}
+                    fontFamily="monospace"
+                    domain={[60, 100]}
+                    unit="m"
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip content={renderSparklineTooltip} />
+                  <ReferenceLine
+                    y={turnaroundThreshold}
+                    stroke="#f43f5e"
+                    strokeDasharray="4 4"
+                    strokeWidth={1.5}
+                    label={{
+                      value: `Target (${turnaroundThreshold}m)`,
+                      position: 'insideTopRight',
+                      fill: '#f43f5e',
+                      fontSize: 10,
+                      fontFamily: 'monospace',
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="turnaroundTime"
+                    name="Turnaround Time"
+                    stroke="#38bdf8"
+                    strokeWidth={2.5}
+                    fillOpacity={1}
+                    fill="url(#turnaroundSparklineGradient)"
+                    dot={{ r: 4, fill: '#38bdf8', stroke: '#0b1329', strokeWidth: 2 }}
+                    activeDot={{ r: 6, fill: '#38bdf8', stroke: '#ffffff', strokeWidth: 2 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* 7-Day Day-by-Day Historical Breakdown Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 pt-0.5">
+            {sevenDayTurnaroundTrend.map((item, idx) => {
+              const isToday = idx === sevenDayTurnaroundTrend.length - 1;
+              const isUnderTarget = item.turnaroundTime <= turnaroundThreshold;
+              const delta = turnaroundThreshold - item.turnaroundTime;
+              return (
+                <div
+                  key={item.day}
+                  className={`p-2.5 rounded-lg border text-center transition-all ${
+                    isToday
+                      ? 'bg-sky-950/70 border-sky-500/80 shadow-md shadow-sky-950/50 ring-1 ring-sky-400/50'
+                      : 'bg-slate-900/70 border-slate-800/90 hover:border-slate-700 hover:bg-slate-850'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                    <span className="truncate">{item.date}</span>
+                    {isToday ? (
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500 text-slate-950 font-bold uppercase tracking-wider">
+                        LIVE
+                      </span>
+                    ) : (
+                      <span className="text-slate-500">{item.day}</span>
+                    )}
+                  </div>
+                  <div className="mt-1.5 flex items-baseline justify-center gap-0.5">
+                    <span className="text-base font-black font-mono text-white">
+                      {item.turnaroundTime}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">min</span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-center gap-1 text-[10px] font-mono font-semibold">
+                    <span className={isUnderTarget ? 'text-emerald-400' : 'text-rose-400'}>
+                      {isUnderTarget ? `-${delta}m` : `+${Math.abs(delta)}m`}
+                    </span>
+                    <span className="text-[9px] text-slate-500 font-sans">
+                      {isUnderTarget ? 'under' : 'over'}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[9px] font-mono text-slate-400">
+                    <span>{item.completedBlocks} blks</span>
+                    <span className="text-cyan-300 font-semibold">{item.punctuality}%</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -1656,6 +1966,12 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
           </div>
         </div>
       </div>
+
+      {/* CORRIDOR DIGITAL TWIN & REAL-TIME DISPATCH SIMULATOR MODULE */}
+      <CorridorDigitalTwin corridors={corridors} onNavigate={onNavigate} />
+
+      {/* SUSTAINABILITY & DECARBONIZATION DASHBOARD MODULE */}
+      <SustainabilityDashboard onNavigate={onNavigate} />
 
       {/* CHARTS GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

@@ -702,4 +702,144 @@ export interface SlipstreamScenario {
   operationalObjective: string;
 }
 
+// ==========================================
+// SUSTAINABILITY & DECARBONIZATION TYPES
+// ==========================================
+
+export type LocomotiveTractionType = 'DIESEL' | 'ELECTRIC' | 'HYBRID_FREIGHT';
+
+export type AntiIdlingProtocolType =
+  | 'AESS_ENGAGED' // Auxiliary Engine Stop-Start auto-shutoff
+  | 'GREEN_WAVE_PACING' // Pacing deceleration before outer signal
+  | 'SHADOW_BLOCK_SLIPSTREAM' // Moving headway maintenance without stop
+  | 'DYNAMIC_SIDING_HOLD'; // Timed siding dwell with cold shutdown
+
+export interface SustainabilityBlockLedgerItem {
+  blockId: string;
+  blockName: string;
+  department: DepartmentType;
+  corridorId: string;
+  corridorName: string;
+  section: string;
+  heldTrainNumber: string;
+  heldTrainName: string;
+  tractionType: LocomotiveTractionType;
+  locoModel: string; // e.g. WDG-4, WAG-9, WDP-4D
+  baselineIdlingMinutes: number;
+  optimizedIdlingMinutes: number;
+  dwellMinutesSaved: number;
+  dieselSavedLiters: number;
+  electricSavedKwh: number;
+  co2SavedKg: number;
+  financialSavingsInr: number;
+  antiIdlingProtocol: AntiIdlingProtocolType;
+  certificationStatus: 'CERTIFIED' | 'PROJECTED' | 'EXEMPLARY';
+}
+
+export interface SustainabilityMetrics {
+  totalCo2AbatedTonnes: number;
+  dieselSavedLiters: number;
+  electricSavedKwh: number;
+  financialFuelSavingsInr: number;
+  idlingHoursEliminated: number;
+  avgDwellMinutesSavedPerTrain: number;
+  treesOffsetEquivalent: number;
+  carbonIntensityReductionPercent: number;
+}
+
+// ==========================================
+// CREW FATIGUE PREDICTOR & REST ROTATION TYPES
+// ==========================================
+
+export type FatigueRiskTier = 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+
+export type StaffTradeType =
+  | 'TRACK_PWI'
+  | 'SIGNAL_TELECOM'
+  | 'TRACTION_OHE'
+  | 'MACHINE_PILOT'
+  | 'SAFETY_LOOKOUT';
+
+export interface HistoricalSafetyIncident {
+  incidentId: string;
+  incidentDate: string;
+  corridorId: string;
+  location: string;
+  department: DepartmentType;
+  trade: string;
+  timeOfDay: string; // e.g. "03:15 AM"
+  fatigueScoreAtIncident: number; // 0 - 100
+  consecutiveNightShiftsPrior: number;
+  hoursContinuousDuty: number;
+  incidentType: string;
+  rootCauseFinding: string;
+  statutoryRegulationBreached: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MODERATE';
+}
+
+export interface SuggestedRestRotation {
+  suggestedAction: string;
+  targetShift: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK' | 'REST_PERIOD';
+  reliefStaffOrGang: string;
+  projectedFatigueIndex: number;
+  fatigueReductionPoints: number;
+  restHoursRecommended: number;
+  aiReasoning: string;
+  urgency: 'IMMEDIATE' | 'NEXT_SHIFT' | 'MONITOR';
+}
+
+export interface CrewFatigueProfile {
+  staffId: string;
+  staffName: string;
+  role: string;
+  department: DepartmentType;
+  trade: StaffTradeType;
+  gangId: string;
+  gangName: string;
+  corridorId: string;
+  supervisor: string;
+  assignedSection: string;
+  currentShift: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
+  consecutiveNightShifts: number;
+  weeklyDutyHours: number;
+  lastRestDurationHours: number;
+  circadianFatigueIndex: number; // 0 - 100
+  sleepDebtHours: number;
+  riskTier: FatigueRiskTier;
+  correlatedIncidentId: string | null;
+  correlatedIncidentPattern: string | null;
+  primaryFatigueDriver: string;
+  currentRestDeficit: boolean;
+  suggestedRestRotation: SuggestedRestRotation;
+}
+
+export interface CircadianHourProfile {
+  hour: number;
+  timeLabel: string;
+  alertnessScore: number;
+  fatigueRiskLevel: number;
+  isHighRiskWindow: boolean;
+  historicalIncidentCount: number;
+}
+
+export interface FatigueAnalysisResult {
+  analysisId: string;
+  analyzedAt: string;
+  totalStaffEvaluated: number;
+  averageFatigueScore: number;
+  criticalFatigueCount: number;
+  highFatigueCount: number;
+  moderateFatigueCount: number;
+  lowFatigueCount: number;
+  hoerViolationCount: number;
+  estimatedIncidentRiskBaseline: number;
+  estimatedIncidentRiskOptimized: number;
+  overallRiskReductionPct: number;
+  topCorridorAtRisk: string;
+  aiExecutiveSummary: string;
+  keyFindings: string[];
+  profiles: CrewFatigueProfile[];
+  optimizedRotationsApplied: boolean;
+}
+
 
