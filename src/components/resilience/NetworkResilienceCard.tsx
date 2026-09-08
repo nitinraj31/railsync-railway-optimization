@@ -606,14 +606,26 @@ export const NetworkResilienceCard: React.FC<NetworkResilienceCardProps> = ({
                 <Zap className="w-3 h-3 text-amber-400 shrink-0" />
                 Avg Response Radius: ~24 min callout
               </span>
-              <button
-                id="quick-mobilize-reserve-btn"
-                onClick={() => onNavigate('resource_allocation', { tab: 'MACHINERY' })}
-                className="text-emerald-400 hover:text-emerald-300 underline text-[10px] shrink-0 font-bold flex items-center gap-0.5 cursor-pointer"
-              >
-                <span>Mobilize Reserve</span>
-                <ArrowUpRight className="w-3 h-3" />
-              </button>
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('fleet-health-heatmap-card');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="text-sky-400 hover:text-sky-300 underline text-[10px] shrink-0 font-bold flex items-center gap-0.5 cursor-pointer"
+                >
+                  <span>Fleet Heatmap</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+                <button
+                  id="quick-mobilize-reserve-btn"
+                  onClick={() => onNavigate('resource_allocation', { tab: 'MACHINERY' })}
+                  className="text-emerald-400 hover:text-emerald-300 underline text-[10px] shrink-0 font-bold flex items-center gap-0.5 cursor-pointer"
+                >
+                  <span>Mobilize Reserve</span>
+                  <ArrowUpRight className="w-3 h-3" />
+                </button>
+              </div>
             </div>
           </div>
         </div>

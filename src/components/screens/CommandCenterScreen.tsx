@@ -33,6 +33,7 @@ import {
   Info,
   Radio,
   Leaf,
+  Truck,
 } from 'lucide-react';
 import {
   BarChart,
@@ -58,6 +59,7 @@ import { PredictiveMaintenancePanel } from '../predictive/PredictiveMaintenanceP
 import { SustainabilityDashboard } from '../sustainability/SustainabilityDashboard';
 import { CorridorDigitalTwin } from '../digitaltwin/CorridorDigitalTwin';
 import { NetworkResilienceCard } from '../resilience/NetworkResilienceCard';
+import { FleetHealthHeatmap } from '../fleet/FleetHealthHeatmap';
 
 interface CommandCenterProps {
   onNavigate: (screen: string, itemData?: any) => void;
@@ -670,6 +672,21 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
             </span>
           </button>
           <button
+            id="jump-to-fleet-heatmap-btn"
+            onClick={() => {
+              const el = document.getElementById('fleet-health-heatmap-card');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-sky-950/90 hover:bg-sky-900 border border-sky-600/60 text-sky-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-950/50 transition-colors font-mono"
+            title="Jump to Fleet Health & Maintenance Readiness Heatmap"
+          >
+            <Truck className="w-4 h-4 text-sky-400 animate-pulse" />
+            <span>Fleet Heatmap</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-sky-500/20 text-sky-200 border border-sky-400/40 uppercase font-bold">
+              14 Assets
+            </span>
+          </button>
+          <button
             id="jump-to-predictive-panel-btn"
             onClick={() => {
               const el = document.getElementById('predictive-maintenance-panel');
@@ -817,6 +834,13 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
       <NetworkResilienceCard
         corridors={corridors}
         blocks={blocks}
+        onNavigate={onNavigate}
+        onRefreshData={onRefreshData}
+      />
+
+      {/* FLEET HEALTH & MAINTENANCE READINESS HEATMAP */}
+      <FleetHealthHeatmap
+        corridors={corridors}
         onNavigate={onNavigate}
         onRefreshData={onRefreshData}
       />
