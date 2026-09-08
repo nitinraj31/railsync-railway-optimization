@@ -10,6 +10,7 @@ import {
   Layers,
   ArrowRight,
   ShieldAlert,
+  ShieldCheck,
   Clock,
   Sparkles,
   ExternalLink,
@@ -56,6 +57,7 @@ import { mockStore } from '../../services/api';
 import { PredictiveMaintenancePanel } from '../predictive/PredictiveMaintenancePanel';
 import { SustainabilityDashboard } from '../sustainability/SustainabilityDashboard';
 import { CorridorDigitalTwin } from '../digitaltwin/CorridorDigitalTwin';
+import { NetworkResilienceCard } from '../resilience/NetworkResilienceCard';
 
 interface CommandCenterProps {
   onNavigate: (screen: string, itemData?: any) => void;
@@ -519,8 +521,9 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
     riskPredictions.reduce((sum, r) => sum + r.projectedOverrunMinutes, 0) / (riskPredictions.length || 1)
   );
 
-  // Factual KPI cards matching exact prompt values
+  // Factual KPI cards matching exact prompt values + Network Resilience
   const kpis = [
+    { label: 'Network Resilience', value: '84%', sub: 'Real-Time Health', icon: ShieldCheck, screen: 'resilience_anchor', color: 'text-emerald-400' },
     { label: 'Assets', value: 28, sub: 'Tracks, S&T, OHE', icon: Wrench, screen: 'maintenance_assets', color: 'text-sky-400' },
     { label: 'Maintenance Tasks', value: 60, sub: 'Periodic Overhauls', icon: Clock, screen: 'maintenance_assets', color: 'text-blue-400' },
     { label: 'Defects', value: totalDefectsCount || 55, sub: 'OMS & Trolley Logs', icon: Bug, screen: 'defects', color: 'text-rose-400' },
@@ -652,6 +655,21 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
             </span>
           </button>
           <button
+            id="jump-to-resilience-btn"
+            onClick={() => {
+              const el = document.getElementById('network-resilience-card');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-sky-950/90 hover:bg-sky-900 border border-sky-600/60 text-sky-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-950/50 transition-colors font-mono"
+            title="Jump to Network Resilience & Health Monitor"
+          >
+            <ShieldCheck className="w-4 h-4 text-sky-400 animate-pulse" />
+            <span>Network Resilience</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-sky-500/20 text-sky-200 border border-sky-400/40 uppercase font-bold">
+              Health 84%
+            </span>
+          </button>
+          <button
             id="jump-to-predictive-panel-btn"
             onClick={() => {
               const el = document.getElementById('predictive-maintenance-panel');
@@ -680,27 +698,34 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
         </div>
       </div>
 
-      {/* 8 KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+      {/* 9 KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2.5">
         {kpis.map((kpi) => {
           const Icon = kpi.icon;
           return (
             <div
               key={kpi.label}
-              onClick={() => onNavigate(kpi.screen)}
-              className="bg-[#0e172e] p-3.5 rounded-lg border border-sky-950/80 hover:border-sky-700/60 cursor-pointer transition-all hover:bg-slate-800/60 group shadow-sm"
+              onClick={() => {
+                if (kpi.screen === 'resilience_anchor') {
+                  const el = document.getElementById('network-resilience-card');
+                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                } else {
+                  onNavigate(kpi.screen);
+                }
+              }}
+              className="bg-[#0e172e] p-3 rounded-lg border border-sky-950/80 hover:border-sky-700/60 cursor-pointer transition-all hover:bg-slate-800/60 group shadow-sm"
             >
               <div className="flex items-center justify-between">
                 <Icon className={`w-4 h-4 ${kpi.color} group-hover:scale-110 transition-transform`} />
-                <span className="text-[10px] text-slate-500 font-mono">COUNT</span>
+                <span className="text-[9px] text-slate-500 font-mono">COUNT</span>
               </div>
-              <div className="text-xl font-bold font-mono text-slate-100 mt-2">
+              <div className="text-lg font-bold font-mono text-slate-100 mt-1.5">
                 {kpi.value}
               </div>
               <div className="text-[11px] font-medium text-slate-300 truncate mt-0.5">
                 {kpi.label}
               </div>
-              <div className="text-[10px] text-slate-500 truncate mt-0.5">{kpi.sub}</div>
+              <div className="text-[9px] text-slate-500 truncate mt-0.5">{kpi.sub}</div>
             </div>
           );
         })}
@@ -787,6 +812,14 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
           </div>
         </div>
       </div>
+
+      {/* NETWORK RESILIENCE & HEALTH MONITOR CARD */}
+      <NetworkResilienceCard
+        corridors={corridors}
+        blocks={blocks}
+        onNavigate={onNavigate}
+        onRefreshData={onRefreshData}
+      />
 
       {/* MAINTENANCE EFFICIENCY KPI DASHBOARD CARD */}
       <div id="maintenance-efficiency-kpi-card" className="bg-[#0e172e] p-5 rounded-xl border border-sky-950/80 shadow-md space-y-4">
