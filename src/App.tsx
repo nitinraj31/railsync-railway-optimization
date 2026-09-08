@@ -55,6 +55,7 @@ import { ResourceAllocationScreen } from './components/screens/ResourceAllocatio
 import { TrainOperationsScreen } from './components/screens/TrainOperationsScreen';
 import { FinalValidationScreen } from './components/screens/FinalValidationScreen';
 import { SystemAuditScreen } from './components/screens/SystemAuditScreen';
+import { ShadowBlockScreen } from './components/screens/ShadowBlockScreen';
 
 export default function App() {
   // Authentication State (default logged in as Railway Planner for instant SIH review)
@@ -300,6 +301,13 @@ export default function App() {
             <AiPlanningScreen
               blocks={blocks}
               onRefreshBlocks={refreshAllData}
+              onNavigate={handleNavigate}
+            />
+          )}
+
+          {currentScreen === 'shadow_block' && (
+            <ShadowBlockScreen
+              onRefreshData={refreshAllData}
               onNavigate={handleNavigate}
             />
           )}

@@ -607,3 +607,99 @@ export interface DefectClusterSummary {
   description: string;
 }
 
+// ==========================================
+// DYNAMIC MOVING "SHADOW-BLOCK" SLIPSTREAM TYPES
+// ==========================================
+
+export type ShadowBlockMachineType =
+  | 'USFD_SPURT' // Self-Propelled Ultrasonic Rail Testing Car
+  | 'OHE_LASER_PROFILER' // Overhead 25kV Catenary Laser Profiler
+  | 'LIDAR_GEOMETRY_ROVER' // High-Precision Track Alignment & Gauge Rover
+  | 'RAPID_FLASH_WELD'; // Mobile Rapid In-Track Flash Butt Welder
+
+export type ShadowBlockRunStatus =
+  | 'STANDBY'
+  | 'SLIPSTREAM_ACTIVE'
+  | 'DOCKING_LOOP'
+  | 'EMERGENCY_EGRESS'
+  | 'COMPLETED';
+
+export type SignalAspect = 'GREEN' | 'DOUBLE_YELLOW' | 'YELLOW' | 'RED';
+
+export interface SidingDockPoint {
+  sidingId: string;
+  name: string;
+  kmMarker: number;
+  turnoutSpeedLimitKmph: number;
+  loopLengthMeters: number;
+  isClear: boolean;
+}
+
+export interface ShadowBlockMachineConfig {
+  id: string;
+  name: string;
+  type: ShadowBlockMachineType;
+  department: DepartmentType;
+  operationalSpeedKmph: number;
+  maxTransitSpeedKmph: number;
+  brakingDecelerationMps2: number;
+  inspectionSensorName: string;
+  crewChief: string;
+  certificationAuthority: string;
+  description: string;
+}
+
+export interface ShadowBlockTelemetry {
+  leadTrainId: string;
+  leadTrainName: string;
+  leadKm: number;
+  leadSpeedKmph: number;
+
+  machineId: string;
+  machineName: string;
+  machineType: ShadowBlockMachineType;
+  machineKm: number;
+  machineSpeedKmph: number;
+  machineStatus: ShadowBlockRunStatus;
+
+  trailTrainId: string;
+  trailTrainName: string;
+  trailKm: number;
+  trailSpeedKmph: number;
+
+  // Slipstream Gap Metrics
+  slipstreamGapKm: number; // Distance between trailing train and machine
+  leadGapKm: number; // Distance between machine and leading train
+  headwayMinutes: number; // Minutes before trailing train reaches machine
+  kavachBrakingMarginKm: number; // Distance before train enters service braking zone
+  isCautionZoneActive: boolean;
+
+  // Siding Docking Telemetry
+  nextSiding: SidingDockPoint;
+  distanceToNextSidingKm: number;
+  timeToSidingSeconds: number;
+  dockWindowClearanceStatus: 'SAFE' | 'URGENT_DOCK' | 'MISSED_WINDOW';
+
+  // Value & Progress
+  trackKmScanned: number;
+  defectsDetectedLive: number;
+  commercialDelayMinutesAvoided: number;
+  revenueLossAvoidedInr: number;
+}
+
+export interface SlipstreamScenario {
+  id: string;
+  name: string;
+  badge: string;
+  corridorId: string;
+  corridorName: string;
+  leadTrain: { id: string; name: string; speed: number; initialKm: number };
+  trailTrain: { id: string; name: string; speed: number; initialKm: number };
+  machine: ShadowBlockMachineConfig;
+  initialMachineKm: number;
+  initialMachineSpeed: number;
+  description: string;
+  operationalObjective: string;
+}
+
+

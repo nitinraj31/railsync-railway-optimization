@@ -105,6 +105,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       presentationAllowed: true,
     },
     {
+      id: 'shadow_block',
+      label: 'Shadow-Block Engine',
+      icon: Radio,
+      badge: 'WORLD 1ST',
+      badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+      allowedRoles: [
+        'SUPER_ADMIN',
+        'RAILWAY_PLANNER',
+        'ENGINEERING_OFFICER',
+        'ST_OFFICER',
+        'TRACTION_OFFICER',
+        'CONTROL_ROOM',
+        'VIEWER',
+      ],
+      presentationAllowed: true,
+    },
+    {
       id: 'timeline',
       label: 'Block Timeline',
       icon: CalendarClock,

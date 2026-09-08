@@ -29,6 +29,7 @@ import {
   Search,
   Filter,
   Info,
+  Radio,
 } from 'lucide-react';
 import {
   BarChart,
@@ -538,6 +539,18 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            id="open-shadow-block-btn"
+            onClick={() => onNavigate('shadow_block')}
+            className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-cyan-950 via-slate-900 to-blue-950 hover:border-cyan-400/80 border border-cyan-500/50 text-cyan-300 text-xs font-semibold flex items-center gap-2 shadow-md shadow-cyan-950/60 transition-all font-mono group"
+            title="Launch Dynamic Moving Shadow-Block Slipstream Simulator"
+          >
+            <Radio className="w-4 h-4 text-cyan-400 group-hover:animate-pulse" />
+            <span>Shadow-Block Engine</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 uppercase font-bold">
+              World 1st
+            </span>
+          </button>
           <button
             id="jump-to-predictive-panel-btn"
             onClick={() => {
@@ -1129,6 +1142,47 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
               <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* DYNAMIC MOVING "SHADOW-BLOCK" SLIPSTREAM BANNER */}
+      <div className="bg-gradient-to-r from-[#061226] via-[#091b38] to-[#071329] p-5 rounded-2xl border border-cyan-500/50 shadow-2xl relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono">
+        <div className="absolute right-0 top-0 bottom-0 w-96 bg-cyan-500/5 blur-3xl pointer-events-none" />
+        <div className="flex items-start gap-4 relative z-10">
+          <div className="w-12 h-12 rounded-2xl bg-cyan-950/90 border border-cyan-400/60 flex items-center justify-center text-cyan-300 shadow-xl shadow-cyan-950/80 shrink-0">
+            <Radio className="w-6 h-6 animate-pulse text-cyan-400" />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-white font-extrabold text-base tracking-wide">
+                DYNAMIC MOVING "SHADOW-BLOCK" SLIPSTREAM ENGINE
+              </h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 uppercase tracking-wider">
+                WORLD-FIRST FEATURE
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed max-w-3xl">
+              Eliminates static geographic track shutdowns. Injects self-propelled USFD Ultrasonic & OHE Laser inspection cars directly into the moving headway envelope between high-speed scheduled trains with Kavach SIL-4 automated siding egress.
+            </p>
+            <div className="flex items-center gap-4 text-[11px] text-cyan-400/90 pt-1 flex-wrap">
+              <span>✓ 0 Min Train Detention</span>
+              <span>✓ Live Kinematic Headway Physics</span>
+              <span>✓ Automated Siding Docking</span>
+              <span>✓ RDSO Form T/A-912-MB Verified</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 relative z-10 shrink-0 self-end md:self-center">
+          <button
+            id="launch-shadow-block-simulator-btn"
+            onClick={() => onNavigate('shadow_block')}
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-xl shadow-cyan-950/60 transition-all font-mono"
+          >
+            <Radio className="w-4 h-4" />
+            <span>Launch Slipstream Simulator</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
