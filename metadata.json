@@ -1,0 +1,6 @@
+{
+  "name": "RAILSYNC",
+  "description": "AI-Powered Automatic Block Planning & Railway Maintenance Coordination System for conflict-aware scheduling.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
