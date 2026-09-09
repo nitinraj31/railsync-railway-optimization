@@ -210,7 +210,7 @@ export interface Conflict {
   department?: DepartmentType;
   taskType?: string;
   trainCategory?: string;
-  conflictType: 'TRAIN_OVERLAP' | 'RESOURCE_CONTENTION' | 'CURFEW_RESTRICTION' | 'SPEED_CONSTRAINT';
+  conflictType: 'TRAIN_OVERLAP' | 'RESOURCE_CONTENTION' | 'CURFEW_RESTRICTION' | 'SPEED_CONSTRAINT' | 'DEPENDENCY_CONFLICT';
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   description: string;
   status: 'OPEN' | 'RESOLVED';
@@ -219,6 +219,45 @@ export interface Conflict {
   alternativeAppliedSlot?: string;
   resolvedAt?: string;
   resolutionNotes?: string;
+  dependencyDetails?: DependencyConflictDetails;
+}
+
+export interface ProposedTimeShift {
+  shiftId: string;
+  targetBlockId: string;
+  targetBlockTitle: string;
+  targetDepartment: 'TRACTION' | 'ENGINEERING';
+  currentSlot: string;
+  proposedSlot: string;
+  shiftDeltaMinutes: number;
+  safetyBufferMinutes: number;
+  rationale: string;
+  recommendationLevel: 'BEST_MATCH' | 'ALTERNATIVE' | 'JOINT_BLOCK';
+  trainPunctualityImpact: string;
+}
+
+export interface DependencyConflictDetails {
+  conflictId: string;
+  corridorId: string;
+  section: string;
+  electricalBlockId: string;
+  electricalTask: string;
+  electricalTime: string;
+  electricalAssetId?: string;
+  electricalDepartment: DepartmentType;
+  trackBlockId: string;
+  trackTask: string;
+  trackTime: string;
+  trackAssetId?: string;
+  trackDepartment: DepartmentType;
+  overlapMinutes: number;
+  hazardType: 'CATENARY_HEIGHT_VIOLATION' | 'SPATIAL_CONTENTION' | 'EARTHING_DISCHARGE_BREAK' | 'RETURN_CURRENT_HAZARD';
+  hazardExplanation: string;
+  safetyRuleViolation: string;
+  proposedTimeShifts: ProposedTimeShift[];
+  status: 'OPEN' | 'RESOLVED';
+  resolvedAt?: string;
+  reconciledShift?: string;
 }
 
 export interface AlternativeSlot {

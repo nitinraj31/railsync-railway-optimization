@@ -21,6 +21,8 @@ import {
   MachineryResource,
   ManpowerGang,
   CorridorResourceMetrics,
+  ProposedTimeShift,
+  DependencyConflictDetails,
 } from '../types';
 import {
   INITIAL_ASSETS,
@@ -534,6 +536,108 @@ class RailSyncStore {
     );
 
     return { success: true, block: block || null };
+  }
+
+  public resolveDependencyConflict(conflictId: string, shift: ProposedTimeShift): { success: boolean; conflict: Conflict | null } {
+    const conflict = this.conflicts.find((c) => c.conflictId === conflictId);
+    if (!conflict) return { success: false, conflict: null };
+
+    // Update conflict status
+    conflict.status = 'RESOLVED';
+    conflict.resolvedAt = new Date().toISOString();
+    conflict.alternativeAppliedSlot = `${shift.proposedSlot} (${shift.targetBlockId})`;
+    conflict.resolutionNotes = `Reconciled via Time Shift: ${shift.targetBlockTitle} shifted from ${shift.currentSlot} to ${shift.proposedSlot}. Safety clearance: ${shift.safetyBufferMinutes} min buffer established. Rationale: ${shift.rationale}`;
+    
+    if (conflict.dependencyDetails) {
+      conflict.dependencyDetails.status = 'RESOLVED';
+      conflict.dependencyDetails.resolvedAt = new Date().toISOString();
+      conflict.dependencyDetails.reconciledShift = `${shift.targetBlockTitle} shifted to ${shift.proposedSlot} (+${shift.safetyBufferMinutes}m safety buffer)`;
+    }
+
+    // Update target block
+    const targetBlock = this.optimizedBlocks.find((b) => b.blockId === shift.targetBlockId);
+    if (targetBlock) {
+      const [newStart, newEnd] = shift.proposedSlot.split('–').map((s) => s.trim());
+      if (newStart && newEnd) {
+        targetBlock.startTime = newStart;
+        targetBlock.endTime = newEnd;
+      }
+      targetBlock.status = 'RESOLVED';
+      targetBlock.validationStatus = 'VALID';
+      targetBlock.hasConflict = false;
+      targetBlock.explainability.whyThisSlot = [
+        `Reconciled via Time Shift to eliminate Electrical vs. Track dependency clash`,
+        `New time window ${shift.proposedSlot} provides ${shift.safetyBufferMinutes}m inter-departmental safety buffer`,
+        `Full compliance with ACTM Vol II Para 20.3 & IRPWM Para 6.4`,
+        `Traction return bonding and catenary wire height verified stable`,
+      ];
+      targetBlock.explainability.optimizationFactors.constraintCompatibility = '100% SATISFIED - Dependency Time Shift Reconciled';
+    }
+
+    // Also update counterpart block
+    if (conflict.dependencyDetails) {
+      const counterpartId = shift.targetBlockId === conflict.dependencyDetails.electricalBlockId 
+        ? conflict.dependencyDetails.trackBlockId 
+        : conflict.dependencyDetails.electricalBlockId;
+      const counterpartBlock = this.optimizedBlocks.find((b) => b.blockId === counterpartId);
+      if (counterpartBlock && counterpartBlock.conflictId === conflictId) {
+        counterpartBlock.status = 'SCHEDULED';
+        counterpartBlock.validationStatus = 'VALID';
+        counterpartBlock.hasConflict = false;
+      }
+    }
+
+    this.persist(STORAGE_KEYS.CONFLICTS, this.conflicts);
+    this.persist(STORAGE_KEYS.OPTIMIZED_BLOCKS, this.optimizedBlocks);
+
+    this.addAuditLogEntry(
+      this.currentUser?.name || 'Chief Block Coordinator',
+      this.currentUser?.role || 'RAILWAY_PLANNER',
+      'Dependency Conflict Reconciled via Time Shift',
+      `${conflict.dependencyDetails?.electricalBlockId || 'Electrical'} ↔ ${conflict.dependencyDetails?.trackBlockId || 'Track'}`,
+      'SUCCESS',
+      `Applied ${shift.targetBlockTitle} time shift to ${shift.proposedSlot}. Inter-departmental safety clearance: ${shift.safetyBufferMinutes} minutes established.`
+    );
+
+    return { success: true, conflict };
+  }
+
+  public resetDependencyConflict(conflictId: string = 'CONF-DEP-001') {
+    const conflict = this.conflicts.find((c) => c.conflictId === conflictId);
+    if (conflict) {
+      conflict.status = 'OPEN';
+      conflict.resolvedAt = undefined;
+      conflict.alternativeAppliedSlot = undefined;
+      conflict.resolutionNotes = undefined;
+      if (conflict.dependencyDetails) {
+        conflict.dependencyDetails.status = 'OPEN';
+        conflict.dependencyDetails.resolvedAt = undefined;
+        conflict.dependencyDetails.reconciledShift = undefined;
+      }
+    }
+
+    const tBlock = this.optimizedBlocks.find((b) => b.blockId === 'BLK-T012');
+    if (tBlock) {
+      tBlock.startTime = '14:00';
+      tBlock.endTime = '15:30';
+      tBlock.status = 'CONFLICT_FLAGGED';
+      tBlock.validationStatus = 'INVALID';
+      tBlock.hasConflict = true;
+      tBlock.conflictId = 'CONF-DEP-001';
+    }
+
+    const eBlock = this.optimizedBlocks.find((b) => b.blockId === 'BLK-E014');
+    if (eBlock) {
+      eBlock.startTime = '14:15';
+      eBlock.endTime = '15:45';
+      eBlock.status = 'CONFLICT_FLAGGED';
+      eBlock.validationStatus = 'INVALID';
+      eBlock.hasConflict = true;
+      eBlock.conflictId = 'CONF-DEP-001';
+    }
+
+    this.persist(STORAGE_KEYS.CONFLICTS, this.conflicts);
+    this.persist(STORAGE_KEYS.OPTIMIZED_BLOCKS, this.optimizedBlocks);
   }
 
   public resolveAllCriticalConflicts() {
@@ -1569,4 +1673,22 @@ export async function autoBalanceCorridors(): Promise<{ success: boolean; messag
 export async function resetResourceFleet(): Promise<{ success: boolean; message: string }> {
   return mockStore.resetResourceFleet();
 }
+
+// ----------------------------------------------------
+// DEPENDENCY CONFLICT RESOLUTION EXPORTS
+// ----------------------------------------------------
+
+export async function resolveDependencyConflict(
+  conflictId: string,
+  shift: ProposedTimeShift
+): Promise<{ success: boolean; conflict: Conflict | null }> {
+  return mockStore.resolveDependencyConflict(conflictId, shift);
+}
+
+export async function resetDependencyConflict(
+  conflictId: string = 'CONF-DEP-001'
+): Promise<void> {
+  mockStore.resetDependencyConflict(conflictId);
+}
+
 

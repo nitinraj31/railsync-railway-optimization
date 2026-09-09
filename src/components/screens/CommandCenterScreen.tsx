@@ -64,6 +64,7 @@ import { FleetHealthHeatmap } from '../fleet/FleetHealthHeatmap';
 import { ElectricalGridHealth } from '../electrical/ElectricalGridHealth';
 import { DepartmentOperationsHub } from '../departments/DepartmentOperationsHub';
 import { EnvironmentalImpactModule } from '../environmental/EnvironmentalImpactModule';
+import { DependencyConflictBanner } from '../conflicts/DependencyConflictBanner';
 
 interface CommandCenterProps {
   onNavigate: (screen: string, itemData?: any) => void;
@@ -796,6 +797,15 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
           );
         })}
       </div>
+
+      {/* DEPENDENCY CONFLICT NOTIFICATION & RECONCILIATION BANNER */}
+      <DependencyConflictBanner
+        conflicts={mockStore.getConflicts()}
+        onRefreshConflicts={() => {
+          onRefreshData?.();
+        }}
+        onNavigateToConflicts={() => onNavigate('conflicts')}
+      />
 
       {/* PLANNING STATUS & DECISION ALERT */}
       <div

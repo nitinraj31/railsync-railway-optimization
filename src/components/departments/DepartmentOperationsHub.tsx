@@ -31,6 +31,8 @@ import {
 } from 'lucide-react';
 import { DepartmentType, Corridor } from '../../types';
 import { printOfficialBulletin, exportBulletinAsHTML } from '../../services/exportBulletinService';
+import { mockStore } from '../../services/api';
+import { DependencyConflictBanner } from '../conflicts/DependencyConflictBanner';
 
 interface DepartmentOperationsHubProps {
   corridors: Corridor[];
@@ -96,6 +98,7 @@ export const DepartmentOperationsHub: React.FC<DepartmentOperationsHubProps> = (
   onNavigate,
 }) => {
   const [selectedDept, setSelectedDept] = useState<DepartmentType | 'ALL'>(activeDepartmentFilter);
+  const [refreshKey, setRefreshKey] = useState<number>(0);
   const [showJointModal, setShowJointModal] = useState<boolean>(false);
   const [selectedJointBlock, setSelectedJointBlock] = useState<JointBlockItem | null>(null);
   const [jointBlocksState, setJointBlocksState] = useState<JointBlockItem[]>([
@@ -559,6 +562,17 @@ export const DepartmentOperationsHub: React.FC<DepartmentOperationsHubProps> = (
           </span>
         </button>
       </div>
+
+      {/* CROSS-DEPARTMENTAL DEPENDENCY CONFLICT ALERT & PROPOSE TIME SHIFT */}
+      {(selectedDept === 'ALL' || selectedDept === 'TRACTION' || selectedDept === 'ENGINEERING') && (
+        <DependencyConflictBanner
+          key={`dept-conflict-${refreshKey}`}
+          conflicts={mockStore.getConflicts()}
+          onRefreshConflicts={() => setRefreshKey((k) => k + 1)}
+          onNavigateToConflicts={() => onNavigate('conflicts')}
+          className="mb-4"
+        />
+      )}
 
       {/* DEPARTMENT CARDS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 font-mono">

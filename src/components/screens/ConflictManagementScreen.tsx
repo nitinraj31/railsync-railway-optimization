@@ -50,6 +50,8 @@ import { WhatIfSimulatorModal } from '../modals/WhatIfSimulatorModal';
 import { CautionOrderModal } from '../modals/CautionOrderModal';
 import { DrmAuditReportModal } from '../modals/DrmAuditReportModal';
 import { PwiDispatchModal } from '../modals/PwiDispatchModal';
+import { DependencyConflictBanner } from '../conflicts/DependencyConflictBanner';
+import { DependencyReconciliationModal } from '../conflicts/DependencyReconciliationModal';
 
 interface ConflictManagementScreenProps {
   conflicts: Conflict[];
@@ -110,6 +112,10 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
   // PWI Dispatch state
   const [pwiDispatchData, setPwiDispatchData] = useState<PwiDispatchMessage | null>(null);
   const [isPwiModalOpen, setIsPwiModalOpen] = useState(false);
+
+  // Dependency Conflict Reconciliation state
+  const [selectedDependencyConflict, setSelectedDependencyConflict] = useState<Conflict | null>(null);
+  const [isDependencyModalOpen, setIsDependencyModalOpen] = useState(false);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -435,7 +441,15 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
 
   const hasActiveFilters = !isAllSelected || corridorFilter !== 'ALL' || searchQuery.trim() !== '';
 
-  const renderSeverityBadge = (severity: Conflict['severity']) => {
+  const renderSeverityBadge = (severity: Conflict['severity'], conflictType?: string) => {
+    if (conflictType === 'DEPENDENCY_CONFLICT') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-amber-950/90 text-amber-300 border border-amber-500 shadow-xs">
+          <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+          <span>DEPENDENCY</span>
+        </span>
+      );
+    }
     switch (severity) {
       case 'CRITICAL':
         return (
@@ -522,6 +536,13 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
           </div>
         </div>
       </div>
+
+      {/* DEPENDENCY CONFLICT NOTIFICATION & RECONCILIATION BANNER */}
+      <DependencyConflictBanner
+        conflicts={conflicts}
+        onRefreshConflicts={onRefreshConflicts}
+        className="mb-6"
+      />
 
       {/* CONFLICT OVERVIEW CARD - REFLECTING ACTIVE FILTER STATE */}
       <div
@@ -1679,7 +1700,7 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
                           )}
                         </button>
                       </td>
-                      <td className="py-3 px-3 whitespace-nowrap">{renderSeverityBadge(c.severity)}</td>
+                      <td className="py-3 px-3 whitespace-nowrap">{renderSeverityBadge(c.severity, c.conflictType)}</td>
                       <td className="py-3 px-3 font-bold text-slate-200">{c.conflictId}</td>
                       <td className="py-3 px-3 text-slate-200 font-semibold">{c.corridorId}</td>
                       <td className="py-3 px-3">
@@ -1690,7 +1711,11 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
                       </td>
                       <td className="py-3 px-3">
                         <span className="font-bold text-purple-300 flex items-center gap-1">
-                          <Train className="w-3.5 h-3.5" />
+                          {c.conflictType === 'DEPENDENCY_CONFLICT' ? (
+                            <Zap className="w-3.5 h-3.5 text-amber-400" />
+                          ) : (
+                            <Train className="w-3.5 h-3.5" />
+                          )}
                           {c.trainNumber}
                         </span>
                         <span className="text-[10px] text-slate-400 block font-normal">
@@ -1742,15 +1767,30 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
                             <Send className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* Primary Find Alternative Slot Button */}
-                          <button
-                            id={`btn-alt-slot-${c.conflictId.toLowerCase()}`}
-                            onClick={() => handleOpenFindAlternatives(c)}
-                            className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-500 hover:to-sky-500 text-white font-semibold text-[11px] shadow-md shadow-blue-950/40 flex items-center gap-1.5 cursor-pointer transition-all"
-                          >
-                            <Clock className="w-3.5 h-3.5" />
-                            <span>FIND ALTERNATIVE</span>
-                          </button>
+                          {/* Primary Action Button: Propose Time Shift for Dependency Conflicts, Find Alternative for train conflicts */}
+                          {c.conflictType === 'DEPENDENCY_CONFLICT' || !!c.dependencyDetails ? (
+                            <button
+                              id={`btn-propose-shift-${c.conflictId.toLowerCase()}`}
+                              onClick={() => {
+                                setSelectedDependencyConflict(c);
+                                setIsDependencyModalOpen(true);
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold text-[11px] shadow-md shadow-amber-950/40 flex items-center gap-1.5 cursor-pointer transition-all animate-pulse"
+                              title="Propose Time Shift to reconcile Electrical vs. Track maintenance dependency"
+                            >
+                              <Clock className="w-3.5 h-3.5 stroke-[2.5]" />
+                              <span>PROPOSE TIME SHIFT</span>
+                            </button>
+                          ) : (
+                            <button
+                              id={`btn-alt-slot-${c.conflictId.toLowerCase()}`}
+                              onClick={() => handleOpenFindAlternatives(c)}
+                              className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-500 hover:to-sky-500 text-white font-semibold text-[11px] shadow-md shadow-blue-950/40 flex items-center gap-1.5 cursor-pointer transition-all"
+                            >
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>FIND ALTERNATIVE</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -2048,6 +2088,21 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
         }}
         dispatchData={pwiDispatchData}
       />
+
+      {/* DEPENDENCY CONFLICT RECONCILIATION MODAL */}
+      {selectedDependencyConflict && (
+        <DependencyReconciliationModal
+          conflict={selectedDependencyConflict}
+          isOpen={isDependencyModalOpen}
+          onClose={() => {
+            setIsDependencyModalOpen(false);
+            setSelectedDependencyConflict(null);
+          }}
+          onResolved={() => {
+            onRefreshConflicts();
+          }}
+        />
+      )}
     </div>
   );
 };

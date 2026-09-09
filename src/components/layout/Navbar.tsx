@@ -55,11 +55,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([
     {
-      id: 'NOTIF-1',
-      title: 'Validation Gate Alert',
-      message: '5 critical train-block overlaps require resolution before publication.',
+      id: 'NOTIF-DEP-1',
+      title: '⚡🛠️ Dependency Conflict Flagged',
+      message: 'Electrical Block BLK-T012 conflicts with concurrent Track Tamper Block BLK-E014 on C003. "Propose Time Shift" available.',
       severity: 'CRITICAL',
       timestamp: 'Just now',
+      read: false,
+      targetScreen: 'conflicts',
+    },
+    {
+      id: 'NOTIF-1',
+      title: 'Validation Gate Alert',
+      message: 'Critical train-block overlaps require resolution before publication.',
+      severity: 'CRITICAL',
+      timestamp: '3m ago',
       read: false,
       targetScreen: 'validation',
     },
