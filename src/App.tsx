@@ -29,6 +29,7 @@ import {
   getPublicationState,
   getAuditLogs,
   getSystemStatus,
+  publishSchedule,
 } from './services/api';
 import { MOCK_USERS } from './data/mockData';
 
@@ -240,6 +241,22 @@ export default function App() {
   const openConflictsCount = conflicts.filter((c) => c.status === 'OPEN').length;
   const pendingRequestsCount = requests.filter((r) => r.status === 'PENDING').length;
 
+  // Dedicated publish schedule handler for demo / quick action
+  const handlePublishSchedule = useCallback(async (autoResolveIfBlocked = true) => {
+    try {
+      const result = await publishSchedule(
+        currentUser?.name || 'Chief Block Coordinator',
+        currentUser?.role || 'RAILWAY_PLANNER',
+        autoResolveIfBlocked
+      );
+      await refreshAllData();
+      return result;
+    } catch (err) {
+      console.error('Error publishing schedule:', err);
+      return { success: false, message: String(err) };
+    }
+  }, [currentUser, refreshAllData]);
+
   if (!currentUser) {
     return <AuthScreen onLoginSuccess={(u) => setCurrentUser(u)} />;
   }
@@ -259,6 +276,7 @@ export default function App() {
         onNavigate={handleNavigate}
         validationStatus={validation.status}
         conflictsCount={openConflictsCount}
+        publicationState={publicationState}
       />
 
       {/* Main Workspace with Persistent Left Sidebar */}
@@ -392,6 +410,8 @@ export default function App() {
               currentUser={currentUser}
               validation={validation}
               publicationState={publicationState}
+              corridors={corridors}
+              blocks={blocks}
               onRefreshValidation={refreshAllData}
               onNavigateToConflict={handleNavigateToConflict}
               onNavigateToAudit={() => setCurrentScreen('system')}
@@ -423,6 +443,7 @@ export default function App() {
         onSelectRole={handleSelectRole}
         onTriggerGeneratePlan={refreshAllData}
         onAutoResolveConflicts={refreshAllData}
+        onPublishSchedule={handlePublishSchedule}
       />
 
       <BackendSettingsModal

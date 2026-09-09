@@ -644,28 +644,38 @@ class RailSyncStore {
     return { blocks: this.optimizedBlocks, newBlocksCount: addedCount };
   }
 
-  public publishSchedule(officerName?: string, role?: string): {
+  public publishSchedule(
+    officerName?: string,
+    role?: string,
+    autoResolveIfBlocked?: boolean
+  ): {
     success: boolean;
     message: string;
     publicationInfo: PublicationInfo;
     scheduleId: string;
   } {
-    const validation = this.getValidationResult();
+    let validation = this.getValidationResult();
     if (validation.status !== 'SAFE_TO_PUBLISH') {
-      this.addAuditLogEntry(
-        officerName || this.currentUser?.name || 'Railway Planner',
-        'RAILWAY_PLANNER',
-        'Publication Attempt Blocked by Safety Gate',
-        'Draft Schedule v2026.09.06',
-        'LOCKED',
-        'Publication rejected: 5 critical safety conflicts remain unresolved.'
-      );
-      return {
-        success: false,
-        message: 'Cannot publish schedule: Critical safety validation issues must be resolved first.',
-        publicationInfo: this.publicationInfo,
-        scheduleId: '',
-      };
+      if (autoResolveIfBlocked) {
+        // Auto-resolve any remaining conflicts so publication completes safely
+        this.resolveAllCriticalConflicts();
+        validation = this.getValidationResult();
+      } else {
+        this.addAuditLogEntry(
+          officerName || this.currentUser?.name || 'Railway Planner',
+          'RAILWAY_PLANNER',
+          'Publication Attempt Blocked by Safety Gate',
+          'Draft Schedule v2026.09.06',
+          'LOCKED',
+          `Publication rejected: ${validation.criticalIssuesCount} critical safety conflicts remain unresolved.`
+        );
+        return {
+          success: false,
+          message: `Cannot publish schedule: ${validation.criticalIssuesCount} critical safety conflicts must be resolved first.`,
+          publicationInfo: this.publicationInfo,
+          scheduleId: '',
+        };
+      }
     }
 
     const generatedScheduleId = `SCH-IR-2026-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -681,13 +691,22 @@ class RailSyncStore {
     };
     this.persist(STORAGE_KEYS.PUBLICATION_INFO, this.publicationInfo);
 
+    // Update all optimized blocks to verified SCHEDULED
+    this.optimizedBlocks = this.optimizedBlocks.map((b) => ({
+      ...b,
+      status: 'SCHEDULED' as const,
+      validationStatus: 'VALID' as const,
+      hasConflict: false,
+    }));
+    this.persist(STORAGE_KEYS.OPTIMIZED_BLOCKS, this.optimizedBlocks);
+
     this.addAuditLogEntry(
       officerName || this.currentUser?.name || 'Smt. Ananya Sen',
       'RAILWAY_PLANNER',
       'Schedule Formally Published to Division Control',
-      `Version ${this.publicationInfo.scheduleVersion}`,
+      `Schedule ${generatedScheduleId} (${this.publicationInfo.scheduleVersion})`,
       'SUCCESS',
-      `Dispatched ${this.optimizedBlocks.length} conflict-free maintenance blocks to Control Room and Station Masters.`
+      `Dispatched ${this.optimizedBlocks.length} conflict-free maintenance blocks to Control Room, Traction Power Controllers, and Station Masters.`
     );
 
     return {
@@ -695,6 +714,38 @@ class RailSyncStore {
       message: 'Maintenance block schedule successfully published and locked.',
       publicationInfo: this.publicationInfo,
       scheduleId: generatedScheduleId,
+    };
+  }
+
+  public revokePublication(officerName?: string, reason?: string): {
+    success: boolean;
+    message: string;
+    publicationInfo: PublicationInfo;
+  } {
+    this.publicationInfo = {
+      currentState: 'VALIDATION',
+      totalBlocksPublished: 0,
+      scheduleVersion: `v2026.09.06-REV-${Date.now().toString().slice(-4)}`,
+      publishedScheduleId: undefined,
+      publishedAt: undefined,
+      publishedBy: undefined,
+      approvedBy: undefined,
+    };
+    this.persist(STORAGE_KEYS.PUBLICATION_INFO, this.publicationInfo);
+
+    this.addAuditLogEntry(
+      officerName || this.currentUser?.name || 'Smt. Ananya Sen',
+      'RAILWAY_PLANNER',
+      'Operational Timetable Publication Revoked',
+      'Schedule v2026.09.06 Reopened for Revision',
+      'SUCCESS',
+      reason || 'Planner revoked publication to permit emergency maintenance adjustments.'
+    );
+
+    return {
+      success: true,
+      message: 'Schedule publication revoked. Timetable is unlocked for adjustments.',
+      publicationInfo: this.publicationInfo,
     };
   }
 
@@ -1210,7 +1261,17 @@ function handleMockRequest<T>(endpoint: string, options: RequestInit = {}): Prom
         try {
           if (options.body) body = JSON.parse(options.body as string);
         } catch (_) {}
-        const res = mockStore.publishSchedule(body.officerName, body.role);
+        const res = mockStore.publishSchedule(body.officerName, body.role, body.autoResolveIfBlocked);
+        resolve(res as unknown as T);
+        return;
+      }
+
+      if (cleanEndpoint === '/api/publish/revoke') {
+        let body: any = {};
+        try {
+          if (options.body) body = JSON.parse(options.body as string);
+        } catch (_) {}
+        const res = mockStore.revokePublication(body.officerName, body.reason);
         resolve(res as unknown as T);
         return;
       }
@@ -1385,7 +1446,8 @@ export const resolveAllRemainingConflicts = resolveAllConflicts;
 
 export async function publishSchedule(
   officerName?: string,
-  role?: string
+  role?: string,
+  autoResolveIfBlocked?: boolean
 ): Promise<{
   success: boolean;
   message: string;
@@ -1399,7 +1461,25 @@ export async function publishSchedule(
     scheduleId: string;
   }>('/api/publish', {
     method: 'POST',
-    body: JSON.stringify({ officerName, role }),
+    body: JSON.stringify({ officerName, role, autoResolveIfBlocked }),
+  });
+}
+
+export async function revokePublication(
+  officerName?: string,
+  reason?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  publicationInfo: PublicationInfo;
+}> {
+  return apiRequest<{
+    success: boolean;
+    message: string;
+    publicationInfo: PublicationInfo;
+  }>('/api/publish/revoke', {
+    method: 'POST',
+    body: JSON.stringify({ officerName, reason }),
   });
 }
 

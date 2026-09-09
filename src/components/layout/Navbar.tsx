@@ -18,7 +18,7 @@ import {
   AlertTriangle,
   FileSpreadsheet,
 } from 'lucide-react';
-import { User, UserRole, AppNotification, SystemStatus } from '../../types';
+import { User, UserRole, AppNotification, SystemStatus, PublicationWorkflowState } from '../../types';
 import { mockStore, getSystemStatus } from '../../services/api';
 import { MOCK_USERS } from '../../data/mockData';
 
@@ -34,6 +34,7 @@ interface NavbarProps {
   onNavigate: (screen: string) => void;
   validationStatus: 'SAFE_TO_PUBLISH' | 'REQUIRES_REVIEW';
   conflictsCount: number;
+  publicationState?: PublicationWorkflowState;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -48,6 +49,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigate,
   validationStatus,
   conflictsCount,
+  publicationState,
 }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -150,28 +152,39 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         {/* Safety Gate Indicator */}
-        <button
-          onClick={() => onNavigate('validation')}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-medium transition-colors ${
-            validationStatus === 'SAFE_TO_PUBLISH'
-              ? 'bg-emerald-950/60 border-emerald-700/50 text-emerald-300 hover:bg-emerald-900/40'
-              : 'bg-rose-950/60 border-rose-700/50 text-rose-300 hover:bg-rose-900/40 animate-pulse'
-          }`}
-        >
-          {validationStatus === 'SAFE_TO_PUBLISH' ? (
-            <>
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              <span>SAFETY GATE: SAFE</span>
-            </>
-          ) : (
-            <>
-              <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-              <span>
-                SAFETY GATE: {conflictsCount} CONFLICTS
-              </span>
-            </>
-          )}
-        </button>
+        {publicationState?.currentState === 'PUBLISHED' ? (
+          <button
+            onClick={() => onNavigate('validation')}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-emerald-600 bg-emerald-950/80 text-emerald-200 hover:bg-emerald-900/60 text-xs font-semibold transition-colors shadow-sm"
+            title="Timetable is Published and Locked. Click to view Gazette."
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span>SCHEDULE: PUBLISHED</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => onNavigate('validation')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-medium transition-colors ${
+              validationStatus === 'SAFE_TO_PUBLISH'
+                ? 'bg-emerald-950/60 border-emerald-700/50 text-emerald-300 hover:bg-emerald-900/40'
+                : 'bg-rose-950/60 border-rose-700/50 text-rose-300 hover:bg-rose-900/40 animate-pulse'
+            }`}
+          >
+            {validationStatus === 'SAFE_TO_PUBLISH' ? (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>SAFETY GATE: SAFE</span>
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                <span>
+                  SAFETY GATE: {conflictsCount} CONFLICTS
+                </span>
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Center / Right: Actions & Tools */}

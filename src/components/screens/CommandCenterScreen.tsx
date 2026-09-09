@@ -34,6 +34,7 @@ import {
   Radio,
   Leaf,
   Truck,
+  CloudRain,
 } from 'lucide-react';
 import {
   BarChart,
@@ -60,6 +61,9 @@ import { SustainabilityDashboard } from '../sustainability/SustainabilityDashboa
 import { CorridorDigitalTwin } from '../digitaltwin/CorridorDigitalTwin';
 import { NetworkResilienceCard } from '../resilience/NetworkResilienceCard';
 import { FleetHealthHeatmap } from '../fleet/FleetHealthHeatmap';
+import { ElectricalGridHealth } from '../electrical/ElectricalGridHealth';
+import { DepartmentOperationsHub } from '../departments/DepartmentOperationsHub';
+import { EnvironmentalImpactModule } from '../environmental/EnvironmentalImpactModule';
 
 interface CommandCenterProps {
   onNavigate: (screen: string, itemData?: any) => void;
@@ -687,6 +691,51 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
             </span>
           </button>
           <button
+            id="jump-to-electrical-grid-btn"
+            onClick={() => {
+              const el = document.getElementById('electrical-grid-health-card');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-amber-950/90 hover:bg-amber-900 border border-amber-600/60 text-amber-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-amber-950/50 transition-colors font-mono"
+            title="Jump to Electrical Grid Health & Traction Substation Telemetry"
+          >
+            <Zap className="w-4 h-4 text-amber-400 animate-pulse" />
+            <span>Electrical Grid</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-amber-500/20 text-amber-200 border border-amber-400/40 uppercase font-bold">
+              25kV SCADA
+            </span>
+          </button>
+          <button
+            id="jump-to-department-hub-btn"
+            onClick={() => {
+              const el = document.getElementById('department-operations-hub-card');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-blue-950/90 hover:bg-blue-900 border border-blue-600/60 text-blue-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-blue-950/50 transition-colors font-mono"
+            title="Jump to Department-Wise Operations Hub"
+          >
+            <Layers className="w-4 h-4 text-blue-400 animate-pulse" />
+            <span>Departments</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-blue-500/20 text-blue-200 border border-blue-400/40 uppercase font-bold">
+              5 Depts
+            </span>
+          </button>
+          <button
+            id="jump-to-environmental-btn"
+            onClick={() => {
+              const el = document.getElementById('environmental-impact-module');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-teal-950/90 hover:bg-teal-900 border border-teal-600/60 text-teal-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-teal-950/50 transition-colors font-mono"
+            title="Jump to Environmental Impact & Regional Weather Intelligence"
+          >
+            <CloudRain className="w-4 h-4 text-teal-400 animate-pulse" />
+            <span>Weather Impact</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-teal-500/20 text-teal-200 border border-teal-400/40 uppercase font-bold">
+              AWS Live
+            </span>
+          </button>
+          <button
             id="jump-to-predictive-panel-btn"
             onClick={() => {
               const el = document.getElementById('predictive-maintenance-panel');
@@ -843,6 +892,25 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
         corridors={corridors}
         onNavigate={onNavigate}
         onRefreshData={onRefreshData}
+      />
+
+      {/* ELECTRICAL GRID HEALTH & TRACTION SUBSTATION TELEMETRY */}
+      <ElectricalGridHealth
+        corridors={corridors}
+        onNavigate={onNavigate}
+      />
+
+      {/* DEPARTMENT-WISE OPERATIONS HUB & CROSS-FUNCTIONAL COORDINATION */}
+      <DepartmentOperationsHub
+        corridors={corridors}
+        onNavigate={onNavigate}
+      />
+
+      {/* ENVIRONMENTAL IMPACT & REGIONAL WEATHER INTELLIGENCE MODULE */}
+      <EnvironmentalImpactModule
+        corridors={corridors}
+        blocks={blocks}
+        onNavigate={onNavigate}
       />
 
       {/* MAINTENANCE EFFICIENCY KPI DASHBOARD CARD */}

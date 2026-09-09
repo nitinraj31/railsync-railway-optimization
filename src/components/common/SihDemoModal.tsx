@@ -25,6 +25,7 @@ interface SihDemoModalProps {
   onSelectRole: (role: UserRole) => void;
   onTriggerGeneratePlan: () => void;
   onAutoResolveConflicts: () => void;
+  onPublishSchedule?: () => void;
 }
 
 interface Step {
@@ -46,6 +47,7 @@ export const SihDemoModal: React.FC<SihDemoModalProps> = ({
   onSelectRole,
   onTriggerGeneratePlan,
   onAutoResolveConflicts,
+  onPublishSchedule,
 }) => {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
 
@@ -259,6 +261,8 @@ export const SihDemoModal: React.FC<SihDemoModalProps> = ({
       onTriggerGeneratePlan();
     } else if (currentStep.num === 13) {
       onAutoResolveConflicts();
+    } else if (currentStep.num === 14 && onPublishSchedule) {
+      onPublishSchedule();
     }
 
     if (currentStepIndex < steps.length - 1) {
