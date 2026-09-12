@@ -143,6 +143,40 @@ export interface BlockRequest {
   syncedToGoogleSheets: boolean;
 }
 
+export interface GeoCoordinates {
+  latitude: number;
+  longitude: number;
+  accuracyMeters?: number;
+  altitudeMeters?: number | null;
+  headingDegrees?: number | null;
+  speedMps?: number | null;
+  capturedAt: string;
+  source: 'GPS_DEVICE' | 'MANUAL_ENTRY' | 'CORRIDOR_ANCHOR';
+  railwayChainageKm?: string;
+}
+
+export interface DefectAiVisualAnalysis {
+  suggestedPriority: PriorityLevel;
+  confidencePercent: number;
+  detectedVisualPatterns: string[];
+  structuralRiskSummary: string;
+  recommendedImmediateAction: string;
+  suggestedSpeedRestrictionKmph?: number | null;
+  detectedDefectCategory?: string;
+  analyzedAt: string;
+  modelUsed: string;
+}
+
+export interface DefectPhotoAttachment {
+  dataUrl: string;
+  capturedAt: string;
+  fileName?: string;
+  fileSizeBytes?: number;
+  source: 'CAMERA_CAPTURE' | 'FILE_UPLOAD' | 'FIELD_PRESET';
+  caption?: string;
+  aiAnalysis?: DefectAiVisualAnalysis;
+}
+
 export interface Defect {
   defectId: string;
   assetId: string;
@@ -155,6 +189,9 @@ export interface Defect {
   reportedBy: string;
   status: 'PENDING_PRIORITY_ANALYSIS' | 'ANALYZED' | 'SCHEDULED' | 'RECTIFIED';
   speedRestrictionKmph?: number;
+  geoCoordinates?: GeoCoordinates;
+  photoAttachment?: DefectPhotoAttachment;
+  aiVisualAnalysis?: DefectAiVisualAnalysis;
 }
 
 export interface OptimizationFactors {
@@ -879,6 +916,41 @@ export interface FatigueAnalysisResult {
   keyFindings: string[];
   profiles: CrewFatigueProfile[];
   optimizedRotationsApplied: boolean;
+}
+
+export interface NearbySupervisorTarget {
+  gangId: string;
+  gangName: string;
+  supervisorName: string;
+  designation: string;
+  department: DepartmentType;
+  assignedSection: string;
+  distanceKm: number;
+  cugMobile: string;
+  radioChannel: string;
+  status: 'DISPATCHED' | 'DELIVERED' | 'ACKNOWLEDGED' | 'EN_ROUTE';
+  acknowledgedAt?: string;
+  responseEtaMinutes?: number;
+}
+
+export interface SupervisorPushAlert {
+  alertId: string;
+  defectId: string;
+  corridorId: string;
+  corridorName: string;
+  section: string;
+  chainageKm?: string;
+  defectType: string;
+  severity: 'CRITICAL';
+  description: string;
+  reportedBy: string;
+  reportedAt: string;
+  geoCoordinates?: GeoCoordinates;
+  supervisorsAlerted: NearbySupervisorTarget[];
+  speedRestrictionKmph?: number;
+  deliveryChannels: ('WEB_PUSH' | 'VHF_RADIO' | 'RAIL_CUG_SMS' | 'IN_APP_BROADCAST')[];
+  deliveryStatus: 'PUSHED_TO_ALL' | 'PARTIAL_DELIVERY' | 'ACKNOWLEDGED';
+  browserPushDelivered: boolean;
 }
 
 

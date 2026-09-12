@@ -32,6 +32,21 @@ export const RailwayFormsModal: React.FC<RailwayFormsModalProps> = ({
   const [rtisPushed, setRtisPushed] = useState<boolean>(false);
   const [smsDispatched, setSmsDispatched] = useState<boolean>(false);
   const [t351Status, setT351Status] = useState<'DISCONNECTED' | 'RECONNECTED'>('DISCONNECTED');
+  const [autoCloseCountdown, setAutoCloseCountdown] = useState<number | null>(null);
+  const [signedSuccessMessage, setSignedSuccessMessage] = useState<string | null>(null);
+
+  // Auto-close modal countdown after signing and declaring track fit
+  React.useEffect(() => {
+    if (autoCloseCountdown === null) return;
+    if (autoCloseCountdown <= 0) {
+      onClose();
+      return;
+    }
+    const timer = setTimeout(() => {
+      setAutoCloseCountdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [autoCloseCountdown, onClose]);
 
   if (!isOpen) return null;
 
@@ -52,11 +67,20 @@ export const RailwayFormsModal: React.FC<RailwayFormsModalProps> = ({
   };
 
   const handleToggleT351 = () => {
-    const next = t351Status === 'DISCONNECTED' ? 'RECONNECTED' : 'DISCONNECTED';
-    setT351Status(next);
-    if (next === 'RECONNECTED') {
+    if (t351Status === 'DISCONNECTED') {
+      setT351Status('RECONNECTED');
       railwayAudio.playSuccessTone();
+      setSignedSuccessMessage(
+        language === 'HI'
+          ? 'पार्ट-II हस्ताक्षरित: पुनः संयोजन एवं ट्रैक फिट घोषित! स्टेशन मास्टर रिकॉर्ड अपडेटेड।'
+          : 'Part-II Signed: Reconnection & Track Fit Declared! Station Master memo transmitted.'
+      );
+      // Automatically remove popup from main screen after declaring and signing
+      setAutoCloseCountdown(2);
     } else {
+      setT351Status('DISCONNECTED');
+      setAutoCloseCountdown(null);
+      setSignedSuccessMessage(null);
       railwayAudio.playStationChime();
     }
   };
@@ -342,6 +366,35 @@ export const RailwayFormsModal: React.FC<RailwayFormsModalProps> = ({
                   </div>
                 </div>
 
+                {/* Auto-close notification banner after declaring and signing */}
+                {signedSuccessMessage && (
+                  <div className="p-3 rounded-xl bg-emerald-950/90 border border-emerald-500 text-emerald-200 text-xs flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                      <div>
+                        <strong className="block text-emerald-100">
+                          {language === 'HI' ? 'हस्ताक्षर एवं घोषणा स्वीकृत' : 'Signed & Declared Track Fit'}
+                        </strong>
+                        <span className="text-[11px] text-emerald-300/90">{signedSuccessMessage}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] font-mono font-bold px-2 py-1 rounded bg-emerald-900 border border-emerald-600 text-emerald-200 animate-pulse">
+                        {language === 'HI'
+                          ? `स्वतः बंद हो रहा है: ${autoCloseCountdown}s`
+                          : `Removing popup in ${autoCloseCountdown}s`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] border border-slate-700 cursor-pointer"
+                      >
+                        {language === 'HI' ? 'अभी बंद करें' : 'Close Now'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* State Toggle Button */}
                 <div className="flex items-center justify-end gap-3 pt-2">
                   <button
@@ -349,14 +402,14 @@ export const RailwayFormsModal: React.FC<RailwayFormsModalProps> = ({
                     className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 cursor-pointer transition-colors shadow-md ${
                       t351Status === 'DISCONNECTED'
                         ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950'
-                        : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
                     }`}
                   >
-                    <CheckCircle2 className="w-4 h-4" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span>
                       {t351Status === 'DISCONNECTED'
                         ? 'Sign Part-II: Reconnect & Declare Track Fit'
-                        : 'Simulate T/351 Disconnection'}
+                        : `Part-II Signed & Declared (Removing in ${autoCloseCountdown || 1}s...)`}
                     </span>
                   </button>
                 </div>

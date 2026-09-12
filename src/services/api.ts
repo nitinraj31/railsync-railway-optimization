@@ -127,6 +127,25 @@ class RailSyncStore {
       this.machinery = this.loadOrSet(STORAGE_KEYS.MACHINERY, INITIAL_MACHINERY_RESOURCES);
       this.manpowerGangs = this.loadOrSet(STORAGE_KEYS.MANPOWER_GANGS, INITIAL_MANPOWER_GANGS);
 
+      // Sync AI visual analysis on cached defects if loaded from older localStorage
+      const initialDefectsMap = new Map(generateInitialDefects().map((d) => [d.defectId, d]));
+      let defectsUpdated = false;
+      this.defects = this.defects.map((d) => {
+        const initial = initialDefectsMap.get(d.defectId);
+        if (initial && !d.aiVisualAnalysis && initial.aiVisualAnalysis) {
+          defectsUpdated = true;
+          return {
+            ...d,
+            aiVisualAnalysis: initial.aiVisualAnalysis,
+            photoAttachment: d.photoAttachment || initial.photoAttachment,
+          };
+        }
+        return d;
+      });
+      if (defectsUpdated) {
+        localStorage.setItem(STORAGE_KEYS.DEFECTS, JSON.stringify(this.defects));
+      }
+
       // Sanitize & Deduplicate loaded state to guarantee zero duplicate keys across updates
       const seenBlockIds = new Set<string>();
       this.optimizedBlocks = this.optimizedBlocks.filter((b) => {
@@ -439,10 +458,18 @@ class RailSyncStore {
     const newDefect: Defect = {
       ...defect,
       defectId,
-      status: 'PENDING_PRIORITY_ANALYSIS',
+      status: defect.aiVisualAnalysis ? 'ANALYZED' : 'PENDING_PRIORITY_ANALYSIS',
     };
     this.defects = [newDefect, ...this.defects];
     this.persist(STORAGE_KEYS.DEFECTS, this.defects);
+
+    const photoTag = defect.photoAttachment ? ' [Site Photo Evidence Attached]' : '';
+    const aiTag = defect.aiVisualAnalysis
+      ? ` | AI Suggested Priority: ${defect.aiVisualAnalysis.suggestedPriority} (${defect.aiVisualAnalysis.confidencePercent}% confidence)`
+      : '';
+    const geoTag = defect.geoCoordinates
+      ? ` | GPS: ${defect.geoCoordinates.latitude.toFixed(5)}°N, ${defect.geoCoordinates.longitude.toFixed(5)}°E (±${Math.round(defect.geoCoordinates.accuracyMeters || 0)}m)`
+      : '';
 
     this.addAuditLogEntry(
       defect.reportedBy || 'Safety Inspector',
@@ -450,7 +477,7 @@ class RailSyncStore {
       'Defect Reported & Logged',
       `${defectId} (${defect.severity} - ${defect.assetId})`,
       defect.severity === 'CRITICAL' ? 'WARNING' : 'INFO',
-      defect.description
+      `${defect.description}${photoTag}${aiTag}${geoTag}`
     );
 
     return newDefect;

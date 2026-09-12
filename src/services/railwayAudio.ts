@@ -38,6 +38,31 @@ class RailwayAudioService {
   }
 
   /**
+   * Short navigation / hotkey click beep
+   */
+  public playBeep(freq = 600, duration = 0.06) {
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.08, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + duration + 0.02);
+    } catch {
+      // Audio error suppressed
+    }
+  }
+
+  /**
    * Two-Tone Railway Station Chime (Ding-Dong)
    * Used for routine announcements, block approvals, and dispatch notifications
    */
@@ -131,6 +156,78 @@ class RailwayAudioService {
         osc.start(time);
         osc.stop(time + 0.32);
       });
+    } catch {
+      // Audio context error suppressed
+    }
+  }
+
+  /**
+   * Railway Field Supervisor Emergency Push Klaxon
+   * High-priority alternating dual-burst klaxon for immediate track section evacuation/intervention
+   */
+  public playSupervisorEmergencyKlaxon() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    try {
+      const now = ctx.currentTime;
+      // 3 urgent warning pulses
+      const pulses = [
+        { freq1: 980, freq2: 740, delay: 0 },
+        { freq1: 1040, freq2: 780, delay: 0.22 },
+        { freq1: 1100, freq2: 820, delay: 0.44 },
+      ];
+
+      pulses.forEach(({ freq1, freq2, delay }) => {
+        const t = now + delay;
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc1.type = 'sawtooth';
+        osc2.type = 'square';
+        osc1.frequency.setValueAtTime(freq1, t);
+        osc2.frequency.setValueAtTime(freq2, t);
+
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.18, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc1.start(t);
+        osc2.start(t);
+        osc1.stop(t + 0.2);
+        osc2.stop(t + 0.2);
+      });
+    } catch {
+      // Audio context error suppressed
+    }
+  }
+
+  /**
+   * Supervisor Acknowledgment Ping (Single bright confirmation chime)
+   */
+  public playAcknowledgmentPing() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1200, now);
+      osc.frequency.exponentialRampToValueAtTime(1600, now + 0.1);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.12, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.36);
     } catch {
       // Audio context error suppressed
     }

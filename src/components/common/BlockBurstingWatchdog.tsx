@@ -13,6 +13,7 @@ import {
   PlusCircle,
   ExternalLink,
   Languages,
+  X,
 } from 'lucide-react';
 import { railwayAudio } from '../../services/railwayAudio';
 import { i18n, Language } from '../../services/i18n';
@@ -39,6 +40,8 @@ export const BlockBurstingWatchdog: React.FC<BlockBurstingWatchdogProps> = ({
   const [extensionCount, setExtensionCount] = useState<number>(0);
   const [showExtensionToast, setShowExtensionToast] = useState<boolean>(false);
   const [trackFitConfirmed, setTrackFitConfirmed] = useState<boolean>(false);
+  const [isDismissed, setIsDismissed] = useState<boolean>(false);
+  const [autoRemoveCountdown, setAutoRemoveCountdown] = useState<number | null>(null);
 
   // Active block details
   const activeBlock = {
@@ -81,6 +84,19 @@ export const BlockBurstingWatchdog: React.FC<BlockBurstingWatchdogProps> = ({
     return () => clearInterval(interval);
   }, [isTimerRunning, trackFitConfirmed, isMuted]);
 
+  // Handle countdown for automatically removing popup after declaring track fit
+  useEffect(() => {
+    if (autoRemoveCountdown === null) return;
+    if (autoRemoveCountdown <= 0) {
+      setIsDismissed(true);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setAutoRemoveCountdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [autoRemoveCountdown]);
+
   const handleToggleMute = () => {
     const nextMute = railwayAudio.toggleMute();
     setIsMuted(nextMute);
@@ -100,6 +116,8 @@ export const BlockBurstingWatchdog: React.FC<BlockBurstingWatchdogProps> = ({
     setIsTimerRunning(false);
     setBurstingStatus('COMPLETED');
     railwayAudio.playSuccessTone();
+    // Automatically remove popup from main screen after declaring track fit
+    setAutoRemoveCountdown(3);
   };
 
   const formatTime = (totalSeconds: number) => {
@@ -107,6 +125,11 @@ export const BlockBurstingWatchdog: React.FC<BlockBurstingWatchdogProps> = ({
     const secs = totalSeconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
+
+  // If dismissed by user or auto-removed after declaring track fit, remove completely from main screen
+  if (isDismissed) {
+    return null;
+  }
 
   const isUrgent = burstingStatus === 'BURSTING_CRITICAL' || secondsRemaining < 300;
   const isWarning = burstingStatus === 'WARNING' && !trackFitConfirmed;
@@ -216,8 +239,18 @@ export const BlockBurstingWatchdog: React.FC<BlockBurstingWatchdogProps> = ({
             <button
               onClick={() => setIsExpanded(!isExpanded)}
               className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
+              title={isExpanded ? 'Collapse' : 'Expand'}
             >
               {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
+
+            {/* Dismiss / Close Watchdog */}
+            <button
+              onClick={() => setIsDismissed(true)}
+              className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              title="Close / Dismiss Watchdog popup from screen"
+            >
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -265,7 +298,7 @@ export const BlockBurstingWatchdog: React.FC<BlockBurstingWatchdogProps> = ({
                     title="Field gang confirms track is packed, OHE normalized, and speed certificate signed"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>{language === 'HI' ? 'ट्रैक फिट एवं संचालन' : 'Declare Track Fit (T/351)'}</span>
+                    <span>{language === 'HI' ? 'ट्रैक फिट एवं संचालन (T/351)' : 'Declare Track Fit & Sign (T/351)'}</span>
                   </button>
 
                   {/* Request 15m Extension */}
@@ -279,10 +312,26 @@ export const BlockBurstingWatchdog: React.FC<BlockBurstingWatchdogProps> = ({
                   </button>
                 </>
               ) : (
-                <div className="flex-1 p-1.5 text-center rounded bg-emerald-950/80 text-emerald-300 text-[11px] border border-emerald-700">
-                  {language === 'HI'
-                    ? 'ट्रैक 130 किमी/घंटा हेतु खोल दिया गया है। स्टेशन मास्टर मेमो संप्रेषित।'
-                    : 'Track cleared for 130 km/h traffic. Station Master memo transmitted.'}
+                <div className="flex-1 p-2 rounded-lg bg-emerald-950/90 text-emerald-300 text-[11px] border border-emerald-600 flex flex-wrap items-center justify-between gap-2 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div>
+                      <strong className="text-white block">
+                        {language === 'HI' ? 'ट्रैक फिट घोषित एवं हस्ताक्षरित!' : 'Track Fit Declared & Signed!'}
+                      </strong>
+                      <span className="text-[10px] text-emerald-300/90">
+                        {language === 'HI'
+                          ? `मुख्य स्क्रीन से स्वतः हटाया जा रहा है (${autoRemoveCountdown || 1}s)...`
+                          : `Automatically removing from screen in ${autoRemoveCountdown || 1}s...`}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsDismissed(true)}
+                    className="px-2 py-0.5 rounded bg-emerald-900/80 hover:bg-emerald-800 text-white text-[10px] border border-emerald-500 cursor-pointer"
+                  >
+                    {language === 'HI' ? 'अभी हटाएं' : 'Dismiss Now'}
+                  </button>
                 </div>
               )}
 

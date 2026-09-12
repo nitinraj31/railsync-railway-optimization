@@ -882,6 +882,89 @@ export function generateInitialDefects(): Defect[] {
     const assetNum = 1 + (i % 28);
     const assetId = `A${assetNum.toString().padStart(3, '0')}`;
 
+    // Base coordinates for Delhi Division corridors
+    const corridorBaseCoords: Record<string, [number, number]> = {
+      C001: [28.6448, 77.2250], // NDLS - GZB
+      C002: [28.6650, 77.2150], // DLI - PNP
+      C003: [28.6920, 76.9210], // BGZ - ROK
+      C004: [28.5830, 77.2450], // NZM - PWL
+    };
+    const baseCoord = corridorBaseCoords[corr] || [28.6139, 77.2090];
+    const latOffset = (i * 0.0042) % 0.15;
+    const lngOffset = (i * 0.0068) % 0.18;
+
+    // Sample photographic evidence for railway defects
+    let photoAttachment: any = undefined;
+    let aiVisualAnalysis: any = undefined;
+    if (i % 3 === 0) {
+      const pType = i % 2 === 0 ? 'Rail Head Fatigue Flaw' : 'Overhead Catenary Wire Dropper Snap';
+      const color = sev === 'CRITICAL' ? '#f43f5e' : '#f59e0b';
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 280" width="400" height="280"><rect width="400" height="280" fill="#0b1329"/><path d="M0 140 L400 140 L400 190 L0 190 Z" fill="#334155"/><path d="M170 140 Q190 160 185 180" stroke="${color}" stroke-width="4" fill="none"/><circle cx="185" cy="160" r="22" stroke="${color}" stroke-width="1.5" stroke-dasharray="3,3" fill="none"/><rect x="0" y="235" width="400" height="45" fill="#020617" opacity="0.95"/><text x="12" y="252" fill="#38bdf8" font-family="monospace" font-size="9" font-weight="bold">IR FIELD DEFECT EVIDENCE | ${assetId} (${corr})</text><text x="12" y="268" fill="#e2e8f0" font-family="monospace" font-size="8.5">${pType} - DETECTED ON PATROL</text></svg>`;
+      
+      aiVisualAnalysis = {
+        suggestedPriority: sev,
+        confidencePercent: 90 + (i % 8),
+        detectedVisualPatterns: [
+          i % 2 === 0 ? 'Transverse rail gauge crack' : 'OHE dropper snap & contact sag',
+          'Surface micro-spalling & metal fatigue',
+          'Geometric alignment variance',
+        ],
+        structuralRiskSummary:
+          sev === 'CRITICAL'
+            ? 'High risk of brittle rail fracture under dynamic 25T freight loading.'
+            : 'Wear pattern requires scheduled remedial restoration within next block window.',
+        recommendedImmediateAction:
+          sev === 'CRITICAL'
+            ? 'Impose 30 km/h caution order. Deploy P-Way emergency squad with clamps.'
+            : 'Schedule sectional maintenance within 48-hour corridor window.',
+        suggestedSpeedRestrictionKmph: sev === 'CRITICAL' ? 30 : 50,
+        detectedDefectCategory: i % 2 === 0 ? 'Permanent Way Railhead Fracture' : 'Traction OHE Disruption',
+        analyzedAt: `2026-09-0${1 + (i % 5)}T10:${(10 + i).toString().padStart(2, '0')}:00Z`,
+        modelUsed: 'gemini-3.8-flash (Vision API)',
+      };
+
+      photoAttachment = {
+        dataUrl: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`,
+        capturedAt: `2026-09-0${1 + (i % 5)}T10:${(10 + i).toString().padStart(2, '0')}:00Z`,
+        fileName: `patrol-photo-${assetId}.jpg`,
+        fileSizeBytes: 42800,
+        source: 'FIELD_PRESET' as const,
+        caption: `${pType} recorded during corridor patrol on ${assetId}`,
+        aiAnalysis: aiVisualAnalysis,
+      };
+    } else if (i <= 48) {
+      // Sensor-based AI priority analysis from TRC / OMS / ultrasonic cars
+      aiVisualAnalysis = {
+        suggestedPriority: sev,
+        confidencePercent: 86 + (i % 12),
+        detectedVisualPatterns: [
+          i % 2 === 0 ? 'TRC track geometry alignment anomaly' : 'Acoustic axle vibration spectral peak',
+          'Automated condition profile variance',
+          'Dynamic deflection threshold proximity',
+        ],
+        structuralRiskSummary:
+          sev === 'CRITICAL'
+            ? 'Ultrasonic flaw detector indicates high risk of rapid crack elongation under heavy freight loading.'
+            : sev === 'HIGH'
+            ? 'Condition parameters show structural degradation requiring priority maintenance block intervention.'
+            : sev === 'MEDIUM'
+            ? 'Track roughness indices within permissible limits but trending toward intervention threshold.'
+            : 'Minor baseline deviation. Low operational risk; maintain standard monitoring cycle.',
+        recommendedImmediateAction:
+          sev === 'CRITICAL'
+            ? 'Impose 30 km/h caution order. Immediate emergency track block requested.'
+            : sev === 'HIGH'
+            ? 'Schedule 90-minute maintenance block within next 48 hours.'
+            : sev === 'MEDIUM'
+            ? 'Include in upcoming weekend corridor maintenance schedule.'
+            : 'Continue routine inspection schedule.',
+        suggestedSpeedRestrictionKmph: sev === 'CRITICAL' ? 30 : sev === 'HIGH' ? 50 : undefined,
+        detectedDefectCategory: i % 2 === 0 ? 'Track Recording Car Sensor Analysis' : 'OMS Vibration Spectral Analysis',
+        analyzedAt: `2026-09-0${1 + (i % 5)}T08:${(10 + i).toString().padStart(2, '0')}:00Z`,
+        modelUsed: 'gemini-3.8-flash (Railway Anomaly Engine)',
+      };
+    }
+
     defects.push({
       defectId: `DEF-2026-${i.toString().padStart(3, '0')}`,
       assetId: assetId,
@@ -894,6 +977,16 @@ export function generateInitialDefects(): Defect[] {
       reportedBy: i % 2 === 0 ? 'Track Inspection Patrol' : 'Traction Line Inspection Unit',
       status: i <= 5 ? 'PENDING_PRIORITY_ANALYSIS' : i <= 25 ? 'ANALYZED' : 'SCHEDULED',
       speedRestrictionKmph: sev === 'CRITICAL' ? 30 : sev === 'HIGH' ? 50 : undefined,
+      geoCoordinates: i % 2 === 0 ? {
+        latitude: Number((baseCoord[0] + latOffset).toFixed(6)),
+        longitude: Number((baseCoord[1] + lngOffset).toFixed(6)),
+        accuracyMeters: 2.5 + (i % 5),
+        capturedAt: `2026-09-0${1 + (i % 5)}T10:${(10 + i).toString().padStart(2, '0')}:00Z`,
+        source: 'GPS_DEVICE',
+        railwayChainageKm: `KM ${(15 + (i * 2.3)).toFixed(1)} Up Main`,
+      } : undefined,
+      photoAttachment,
+      aiVisualAnalysis,
     });
   }
 
