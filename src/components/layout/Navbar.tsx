@@ -17,10 +17,14 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileSpreadsheet,
+  Languages,
+  FileText,
+  Keyboard,
 } from 'lucide-react';
 import { User, UserRole, AppNotification, SystemStatus, PublicationWorkflowState } from '../../types';
 import { mockStore, getSystemStatus } from '../../services/api';
 import { MOCK_USERS } from '../../data/mockData';
+import { Language } from '../../services/i18n';
 
 interface NavbarProps {
   currentUser: User | null;
@@ -35,6 +39,10 @@ interface NavbarProps {
   validationStatus: 'SAFE_TO_PUBLISH' | 'REQUIRES_REVIEW';
   conflictsCount: number;
   publicationState?: PublicationWorkflowState;
+  language?: Language;
+  onToggleLanguage?: () => void;
+  onOpenFormsModal?: (formType?: 'T409' | 'T351') => void;
+  onOpenHotkeysModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -50,6 +58,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   validationStatus,
   conflictsCount,
   publicationState,
+  language = 'EN',
+  onToggleLanguage,
+  onOpenFormsModal,
+  onOpenHotkeysModal,
 }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -232,6 +244,41 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Eye className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{presentationMode ? 'PRESENTATION ON' : 'PITCH MODE'}</span>
         </button>
+
+        {/* Digital Railway Forms (T/409 Caution Order & T/351 Memo) */}
+        {onOpenFormsModal && (
+          <button
+            onClick={() => onOpenFormsModal('T409')}
+            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-slate-900 border border-slate-700/80 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+            title="Open Indian Railways Official Caution Order (T/409) & Disconnection Memo (T/351)"
+          >
+            <FileText className="w-3.5 h-3.5 text-sky-400" />
+            <span>{language === 'HI' ? 'प्रपत्र T/409' : 'Forms T/409'}</span>
+          </button>
+        )}
+
+        {/* Section Controller Hotkeys Guide */}
+        {onOpenHotkeysModal && (
+          <button
+            onClick={onOpenHotkeysModal}
+            className="p-2 rounded bg-slate-900 border border-slate-700/80 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            title="Section Controller Keyboard Hotkeys (?)"
+          >
+            <Keyboard className="w-4 h-4 text-sky-400" />
+          </button>
+        )}
+
+        {/* Bilingual Hindi / English Toggle */}
+        {onToggleLanguage && (
+          <button
+            onClick={onToggleLanguage}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-sky-950/80 hover:bg-sky-900 border border-sky-700/60 text-xs font-mono font-bold text-sky-300 transition-colors cursor-pointer"
+            title={`Language: ${language}. Click to toggle English / Hindi`}
+          >
+            <Languages className="w-3.5 h-3.5 text-sky-400" />
+            <span>{language === 'EN' ? 'हिंदी' : 'EN'}</span>
+          </button>
+        )}
 
         {/* Notifications Popover */}
         <div className="relative">
