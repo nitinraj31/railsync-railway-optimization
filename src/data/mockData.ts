@@ -932,7 +932,7 @@ export function generateInitialDefects(): Defect[] {
         caption: `${pType} recorded during corridor patrol on ${assetId}`,
         aiAnalysis: aiVisualAnalysis,
       };
-    } else if (i <= 48) {
+    } else {
       // Sensor-based AI priority analysis from TRC / OMS / ultrasonic cars
       aiVisualAnalysis = {
         suggestedPriority: sev,

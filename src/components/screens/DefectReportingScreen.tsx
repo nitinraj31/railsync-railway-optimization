@@ -35,6 +35,8 @@ import {
   Download,
   QrCode,
   Clock,
+  Zap,
+  ArrowUpDown,
 } from 'lucide-react';
 import {
   Defect,
@@ -156,6 +158,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
   const [filterGpsOnly, setFilterGpsOnly] = useState(false);
   const [filterPhotosOnly, setFilterPhotosOnly] = useState(false);
   const [filterAiPriorities, setFilterAiPriorities] = useState<PriorityLevel[]>([]);
+  const [sortByAiUrgency, setSortByAiUrgency] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Screen View Mode: Active Defect Registry vs Predictive Maintenance Timeline Map
@@ -476,8 +479,59 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
   };
 
   // Helper to extract suggested AI maintenance priority from defect visual analysis or photo attachment
-  const getDefectAiPriority = (d: Defect): PriorityLevel | undefined => {
-    return d.aiVisualAnalysis?.suggestedPriority || d.photoAttachment?.aiAnalysis?.suggestedPriority;
+  const getDefectAiPriority = (d: Defect): PriorityLevel => {
+    return (
+      d.aiVisualAnalysis?.suggestedPriority ||
+      d.photoAttachment?.aiAnalysis?.suggestedPriority ||
+      (d.severity as PriorityLevel)
+    );
+  };
+
+  const currentAiDropdownValue = useMemo(() => {
+    if (filterAiPriorities.length === 0) return 'ALL';
+    if (
+      filterAiPriorities.length === 2 &&
+      filterAiPriorities.includes('CRITICAL') &&
+      filterAiPriorities.includes('HIGH')
+    ) {
+      return 'URGENT';
+    }
+    if (filterAiPriorities.length === 1) {
+      return filterAiPriorities[0];
+    }
+    return 'MULTI';
+  }, [filterAiPriorities]);
+
+  const handleAiPriorityDropdownChange = (val: string) => {
+    railwayAudio.playBeep(700, 0.04);
+    if (val === 'ALL') {
+      setFilterAiPriorities([]);
+    } else if (val === 'URGENT') {
+      setFilterAiPriorities(['CRITICAL', 'HIGH']);
+    } else if (val === 'CRITICAL' || val === 'HIGH' || val === 'MEDIUM' || val === 'LOW') {
+      setFilterAiPriorities([val as PriorityLevel]);
+    }
+  };
+
+  const handleQuickFocusUrgent = () => {
+    railwayAudio.playStationChime();
+    if (
+      filterAiPriorities.length === 2 &&
+      filterAiPriorities.includes('CRITICAL') &&
+      filterAiPriorities.includes('HIGH')
+    ) {
+      // Toggle to CRITICAL only
+      setFilterAiPriorities(['CRITICAL']);
+    } else if (
+      filterAiPriorities.length === 1 &&
+      filterAiPriorities[0] === 'CRITICAL'
+    ) {
+      // If already critical, clear filter
+      setFilterAiPriorities([]);
+    } else {
+      // Focus on Urgent (CRITICAL & HIGH)
+      setFilterAiPriorities(['CRITICAL', 'HIGH']);
+    }
   };
 
   const handleToggleAiPriority = (priority: PriorityLevel) => {
@@ -491,37 +545,67 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
     });
   };
 
-  const filteredDefects = defects.filter((d) => {
-    if (filterSeverity !== 'ALL' && d.severity !== filterSeverity) return false;
-    if (filterDept !== 'ALL' && d.department !== filterDept) return false;
-    if (filterGpsOnly && !d.geoCoordinates) return false;
-    if (filterPhotosOnly && !d.photoAttachment) return false;
+  const filteredDefects = useMemo(() => {
+    const list = defects.filter((d) => {
+      if (filterSeverity !== 'ALL' && d.severity !== filterSeverity) return false;
+      if (filterDept !== 'ALL' && d.department !== filterDept) return false;
+      if (filterGpsOnly && !d.geoCoordinates) return false;
+      if (filterPhotosOnly && !d.photoAttachment) return false;
 
-    // AI Maintenance Priority Level Filtering
-    if (filterAiPriorities.length > 0) {
-      const aiPriority = getDefectAiPriority(d);
-      if (!aiPriority || !filterAiPriorities.includes(aiPriority)) {
-        return false;
+      // AI Maintenance Priority Level Filtering
+      if (filterAiPriorities.length > 0) {
+        const aiPriority = getDefectAiPriority(d);
+        if (!filterAiPriorities.includes(aiPriority)) {
+          return false;
+        }
       }
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const coordsMatch = d.geoCoordinates
+          ? `${d.geoCoordinates.latitude} ${d.geoCoordinates.longitude} ${d.geoCoordinates.railwayChainageKm || ''}`.toLowerCase().includes(q)
+          : false;
+        const aiPriorityMatch = getDefectAiPriority(d).toLowerCase().includes(q);
+        return (
+          d.defectId.toLowerCase().includes(q) ||
+          d.assetId.toLowerCase().includes(q) ||
+          d.defectType.toLowerCase().includes(q) ||
+          d.description.toLowerCase().includes(q) ||
+          coordsMatch ||
+          aiPriorityMatch
+        );
+      }
+      return true;
+    });
+
+    if (sortByAiUrgency) {
+      const PRIORITY_ORDER: Record<PriorityLevel, number> = {
+        CRITICAL: 4,
+        HIGH: 3,
+        MEDIUM: 2,
+        LOW: 1,
+      };
+      return [...list].sort((a, b) => {
+        const pA = PRIORITY_ORDER[getDefectAiPriority(a)] || 0;
+        const pB = PRIORITY_ORDER[getDefectAiPriority(b)] || 0;
+        if (pB !== pA) {
+          return pB - pA;
+        }
+        return b.defectId.localeCompare(a.defectId);
+      });
     }
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const coordsMatch = d.geoCoordinates
-        ? `${d.geoCoordinates.latitude} ${d.geoCoordinates.longitude} ${d.geoCoordinates.railwayChainageKm || ''}`.toLowerCase().includes(q)
-        : false;
-      const aiPriorityMatch = getDefectAiPriority(d)?.toLowerCase().includes(q) || false;
-      return (
-        d.defectId.toLowerCase().includes(q) ||
-        d.assetId.toLowerCase().includes(q) ||
-        d.defectType.toLowerCase().includes(q) ||
-        d.description.toLowerCase().includes(q) ||
-        coordsMatch ||
-        aiPriorityMatch
-      );
-    }
-    return true;
-  });
+    return list;
+  }, [
+    defects,
+    filterSeverity,
+    filterDept,
+    filterGpsOnly,
+    filterPhotosOnly,
+    filterAiPriorities,
+    searchQuery,
+    sortByAiUrgency,
+  ]);
 
   const activeFilterSummary = useMemo(() => {
     const parts: string[] = [];
@@ -530,20 +614,35 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
     if (filterGpsOnly) parts.push('GPS Tagged Only');
     if (filterPhotosOnly) parts.push('Photo Evidence Only');
     if (filterAiPriorities.length > 0) parts.push(`AI Priority: ${filterAiPriorities.join('/')}`);
+    if (sortByAiUrgency) parts.push('Sorted: Urgent First');
     if (searchQuery.trim()) parts.push(`Search: "${searchQuery.trim()}"`);
     return parts.length > 0 ? parts.join(' | ') : 'All Active Track Defects';
-  }, [filterSeverity, filterDept, filterGpsOnly, filterPhotosOnly, filterAiPriorities, searchQuery]);
+  }, [filterSeverity, filterDept, filterGpsOnly, filterPhotosOnly, filterAiPriorities, sortByAiUrgency, searchQuery]);
 
   const geotaggedCount = defects.filter((d) => !!d.geoCoordinates).length;
   const photosCount = defects.filter((d) => !!d.photoAttachment).length;
 
-  const aiPriorityCounts = {
-    CRITICAL: defects.filter((d) => getDefectAiPriority(d) === 'CRITICAL').length,
-    HIGH: defects.filter((d) => getDefectAiPriority(d) === 'HIGH').length,
-    MEDIUM: defects.filter((d) => getDefectAiPriority(d) === 'MEDIUM').length,
-    LOW: defects.filter((d) => getDefectAiPriority(d) === 'LOW').length,
-    TOTAL: defects.filter((d) => !!getDefectAiPriority(d)).length,
-  };
+  const aiPriorityCounts = useMemo(() => {
+    let critical = 0;
+    let high = 0;
+    let medium = 0;
+    let low = 0;
+    defects.forEach((d) => {
+      const p = getDefectAiPriority(d);
+      if (p === 'CRITICAL') critical++;
+      else if (p === 'HIGH') high++;
+      else if (p === 'MEDIUM') medium++;
+      else if (p === 'LOW') low++;
+    });
+    return {
+      CRITICAL: critical,
+      HIGH: high,
+      MEDIUM: medium,
+      LOW: low,
+      URGENT: critical + high,
+      TOTAL: defects.length,
+    };
+  }, [defects]);
 
   // Proactive criticality prediction for currently selected asset in reporting form
   const activeFormPrediction = useMemo(() => {
@@ -1411,36 +1510,75 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                 <option value="LOW">Low</option>
               </select>
 
-              <select
-                id="select-ai-priority-filter"
-                value={
-                  filterAiPriorities.length === 0
-                    ? 'ALL'
-                    : filterAiPriorities.length === 1
-                    ? filterAiPriorities[0]
-                    : 'MULTI'
-                }
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === 'ALL') {
-                    setFilterAiPriorities([]);
-                  } else if (val !== 'MULTI') {
-                    setFilterAiPriorities([val as PriorityLevel]);
-                  }
-                  railwayAudio.playBeep(700, 0.04);
-                }}
-                className="bg-slate-900 border border-indigo-700/80 rounded px-2 py-1.5 text-xs text-indigo-200 font-mono focus:outline-none"
-                title="Filter by AI Suggested Priority"
+              {/* Field Supervisor AI Priority Dropdown Filter */}
+              <div className="flex items-center gap-1.5 bg-slate-900 border border-indigo-700/80 rounded px-2 py-1 shadow-sm">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0 animate-pulse" />
+                <label
+                  htmlFor="select-ai-priority-filter"
+                  className="text-[11px] font-mono font-semibold text-indigo-300 hidden sm:inline"
+                >
+                  AI Priority:
+                </label>
+                <select
+                  id="select-ai-priority-filter"
+                  value={currentAiDropdownValue}
+                  onChange={(e) => handleAiPriorityDropdownChange(e.target.value)}
+                  className="bg-transparent text-xs text-indigo-200 font-mono font-semibold focus:outline-none cursor-pointer pr-1"
+                  title="Filter defects by AI-suggested priority level (CRITICAL, HIGH, MEDIUM, LOW) to prioritize field tasks"
+                >
+                  <option value="ALL" className="bg-slate-900 text-slate-200">
+                    All AI Priorities ({aiPriorityCounts.TOTAL})
+                  </option>
+                  <option value="URGENT" className="bg-slate-900 text-amber-300 font-bold">
+                    ⚡ Focus Urgent: CRITICAL &amp; HIGH ({aiPriorityCounts.URGENT})
+                  </option>
+                  <option value="CRITICAL" className="bg-slate-900 text-rose-300 font-bold">
+                    🔴 CRITICAL Priority ({aiPriorityCounts.CRITICAL})
+                  </option>
+                  <option value="HIGH" className="bg-slate-900 text-amber-300">
+                    🟠 HIGH Priority ({aiPriorityCounts.HIGH})
+                  </option>
+                  <option value="MEDIUM" className="bg-slate-900 text-sky-300">
+                    🔵 MEDIUM Priority ({aiPriorityCounts.MEDIUM})
+                  </option>
+                  <option value="LOW" className="bg-slate-900 text-emerald-300">
+                    🟢 LOW Priority ({aiPriorityCounts.LOW})
+                  </option>
+                  {currentAiDropdownValue === 'MULTI' && (
+                    <option value="MULTI" className="bg-slate-900 text-indigo-300">
+                      AI: Custom Selection ({filterAiPriorities.length} active)
+                    </option>
+                  )}
+                </select>
+              </div>
+
+              {/* Field Supervisor Quick Focus Action Button */}
+              <button
+                type="button"
+                id="btn-quick-urgent-focus"
+                onClick={handleQuickFocusUrgent}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-mono font-bold transition-all border cursor-pointer ${
+                  filterAiPriorities.length === 2 &&
+                  filterAiPriorities.includes('CRITICAL') &&
+                  filterAiPriorities.includes('HIGH')
+                    ? 'bg-amber-900/90 text-amber-200 border-amber-500 shadow-md shadow-amber-950/50 ring-1 ring-amber-400'
+                    : filterAiPriorities.length === 1 && filterAiPriorities[0] === 'CRITICAL'
+                    ? 'bg-rose-900/90 text-rose-200 border-rose-500 shadow-md shadow-rose-950/50 ring-1 ring-rose-400'
+                    : 'bg-indigo-950/80 hover:bg-indigo-900/80 text-indigo-300 border-indigo-700/70 hover:border-indigo-500'
+                }`}
+                title="Field Supervisor Quick Action: Focus on Urgent AI Priority Tasks First"
               >
-                <option value="ALL">AI Priority: All</option>
-                {filterAiPriorities.length > 1 && (
-                  <option value="MULTI">AI: Custom ({filterAiPriorities.length} Active)</option>
-                )}
-                <option value="CRITICAL">AI: Critical ({aiPriorityCounts.CRITICAL})</option>
-                <option value="HIGH">AI: High ({aiPriorityCounts.HIGH})</option>
-                <option value="MEDIUM">AI: Medium ({aiPriorityCounts.MEDIUM})</option>
-                <option value="LOW">AI: Low ({aiPriorityCounts.LOW})</option>
-              </select>
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span>
+                  {filterAiPriorities.length === 1 && filterAiPriorities[0] === 'CRITICAL'
+                    ? 'Critical Focus (Active)'
+                    : filterAiPriorities.length === 2 &&
+                      filterAiPriorities.includes('CRITICAL') &&
+                      filterAiPriorities.includes('HIGH')
+                    ? 'Urgent Focus (Active)'
+                    : `Focus Urgent (${aiPriorityCounts.URGENT})`}
+                </span>
+              </button>
             </div>
           </div>
 
@@ -1449,7 +1587,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
             id="ai-priority-filter-control-panel"
             className="mb-3.5 p-3 rounded-xl bg-gradient-to-r from-slate-950 via-[#0c1326] to-slate-950 border border-indigo-900/60 shadow-inner"
           >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-indigo-950/80 border border-indigo-700/60 text-indigo-400">
                   <Sparkles className="w-4 h-4 text-indigo-400 animate-pulse" />
@@ -1457,11 +1595,11 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold font-mono uppercase tracking-wider text-indigo-200">
-                      AI Suggested Priority Filter
+                      Field Supervisor AI Priority Filter
                     </span>
                     {filterAiPriorities.length > 0 ? (
-                      <span className="px-1.5 py-0.2 rounded bg-indigo-900/70 border border-indigo-600 text-indigo-200 text-[10px] font-mono">
-                        {filterAiPriorities.join(' + ')} ({filteredDefects.length} shown)
+                      <span className="px-1.5 py-0.2 rounded bg-indigo-900/70 border border-indigo-600 text-indigo-200 text-[10px] font-mono font-bold">
+                        {filterAiPriorities.join(' + ')} ({filteredDefects.length} urgent shown)
                       </span>
                     ) : (
                       <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 text-[10px] font-mono">
@@ -1470,30 +1608,82 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                     )}
                   </div>
                   <p className="text-[10.5px] text-slate-400 font-mono">
-                    Toggle AI maintenance priority levels to filter defects diagnosed by vision and sensor pattern engines
+                    Filter defects by AI-suggested priority level (CRITICAL, HIGH, MEDIUM, LOW) to prioritize urgent tasks first
                   </p>
                 </div>
               </div>
 
-              {filterAiPriorities.length > 0 && (
+              {/* Quick controls: Sort by urgency, Dropdown selector, and Reset */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-slate-900/90 border border-indigo-700/60 rounded px-2 py-1 text-xs">
+                  <label htmlFor="panel-select-ai-priority-filter" className="text-[10.5px] font-mono text-indigo-300">
+                    Dropdown:
+                  </label>
+                  <select
+                    id="panel-select-ai-priority-filter"
+                    value={currentAiDropdownValue}
+                    onChange={(e) => handleAiPriorityDropdownChange(e.target.value)}
+                    className="bg-transparent text-xs text-indigo-200 font-mono font-semibold focus:outline-none cursor-pointer"
+                  >
+                    <option value="ALL" className="bg-slate-900 text-slate-200">
+                      All Priorities ({aiPriorityCounts.TOTAL})
+                    </option>
+                    <option value="URGENT" className="bg-slate-900 text-amber-300 font-bold">
+                      ⚡ Urgent: CRITICAL &amp; HIGH ({aiPriorityCounts.URGENT})
+                    </option>
+                    <option value="CRITICAL" className="bg-slate-900 text-rose-300">
+                      CRITICAL Priority ({aiPriorityCounts.CRITICAL})
+                    </option>
+                    <option value="HIGH" className="bg-slate-900 text-amber-300">
+                      HIGH Priority ({aiPriorityCounts.HIGH})
+                    </option>
+                    <option value="MEDIUM" className="bg-slate-900 text-sky-300">
+                      MEDIUM Priority ({aiPriorityCounts.MEDIUM})
+                    </option>
+                    <option value="LOW" className="bg-slate-900 text-emerald-300">
+                      LOW Priority ({aiPriorityCounts.LOW})
+                    </option>
+                  </select>
+                </div>
+
                 <button
                   type="button"
-                  id="btn-reset-ai-priority-filter"
+                  id="btn-sort-ai-urgency"
                   onClick={() => {
-                    setFilterAiPriorities([]);
-                    railwayAudio.playBeep(650, 0.04);
+                    setSortByAiUrgency(!sortByAiUrgency);
+                    railwayAudio.playBeep(800, 0.04);
                   }}
-                  className="self-start sm:self-auto text-[11px] font-mono text-rose-300 hover:text-rose-200 underline flex items-center gap-1 cursor-pointer transition-colors"
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-mono font-semibold transition-all border cursor-pointer ${
+                    sortByAiUrgency
+                      ? 'bg-indigo-900/90 border-indigo-500 text-indigo-200 shadow-sm'
+                      : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Toggle sorting defects by AI urgency (CRITICAL first)"
                 >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Reset AI Filter</span>
+                  <ArrowUpDown className="w-3 h-3 text-indigo-400" />
+                  <span>{sortByAiUrgency ? 'Urgent Sorted' : 'Sort Urgency'}</span>
                 </button>
-              )}
+
+                {filterAiPriorities.length > 0 && (
+                  <button
+                    type="button"
+                    id="btn-reset-ai-priority-filter"
+                    onClick={() => {
+                      setFilterAiPriorities([]);
+                      railwayAudio.playBeep(650, 0.04);
+                    }}
+                    className="text-[11px] font-mono text-rose-300 hover:text-rose-200 underline flex items-center gap-1 cursor-pointer transition-colors px-1"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Interactive Priority Toggle Chips */}
             <div className="mt-2.5 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-mono text-slate-400 mr-1">Toggle Visibility:</span>
+              <span className="text-[11px] font-mono text-slate-400 mr-1">Quick Select:</span>
 
               {/* All Toggle */}
               <button
@@ -1503,7 +1693,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                   setFilterAiPriorities([]);
                   railwayAudio.playBeep(700, 0.04);
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-1.5 ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-1.5 ${
                   filterAiPriorities.length === 0
                     ? 'bg-slate-100 text-slate-900 border-white shadow-md shadow-slate-950 font-bold'
                     : 'bg-slate-900/90 text-slate-400 border-slate-700 hover:text-slate-200 hover:border-slate-600'
@@ -1519,12 +1709,41 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                 </span>
               </button>
 
+              {/* Urgent Combo Toggle */}
+              <button
+                type="button"
+                id="btn-filter-ai-urgent"
+                onClick={() =>
+                  handleAiPriorityDropdownChange(
+                    filterAiPriorities.length === 2 &&
+                      filterAiPriorities.includes('CRITICAL') &&
+                      filterAiPriorities.includes('HIGH')
+                      ? 'ALL'
+                      : 'URGENT'
+                  )
+                }
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-1.5 ${
+                  filterAiPriorities.length === 2 &&
+                  filterAiPriorities.includes('CRITICAL') &&
+                  filterAiPriorities.includes('HIGH')
+                    ? 'bg-gradient-to-r from-rose-950 via-amber-950 to-amber-900 text-amber-200 border-amber-500 ring-1 ring-amber-400 shadow-md'
+                    : 'bg-slate-900/90 text-amber-300/80 border-amber-900/60 hover:border-amber-700 hover:text-amber-200'
+                }`}
+                title="Field Supervisor Quick Action: Focus on both CRITICAL and HIGH priority tasks"
+              >
+                <Zap className="w-3 h-3 text-amber-400" />
+                <span>Urgent Focus (Crit &amp; High)</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-950 text-amber-300 border border-amber-700">
+                  {aiPriorityCounts.URGENT}
+                </span>
+              </button>
+
               {/* CRITICAL Toggle */}
               <button
                 type="button"
                 id="btn-filter-ai-critical"
                 onClick={() => handleToggleAiPriority('CRITICAL')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-2 ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-1.5 ${
                   filterAiPriorities.includes('CRITICAL')
                     ? 'bg-rose-950 text-rose-100 border-rose-500 ring-1 ring-rose-500 shadow-md shadow-rose-950/60'
                     : 'bg-slate-900/90 text-slate-400 border-slate-700/80 hover:border-rose-700/70 hover:text-rose-300'
@@ -1553,7 +1772,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                 type="button"
                 id="btn-filter-ai-high"
                 onClick={() => handleToggleAiPriority('HIGH')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-2 ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-1.5 ${
                   filterAiPriorities.includes('HIGH')
                     ? 'bg-amber-950 text-amber-100 border-amber-500 ring-1 ring-amber-500 shadow-md shadow-amber-950/60'
                     : 'bg-slate-900/90 text-slate-400 border-slate-700/80 hover:border-amber-700/70 hover:text-amber-300'
@@ -1582,7 +1801,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                 type="button"
                 id="btn-filter-ai-medium"
                 onClick={() => handleToggleAiPriority('MEDIUM')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-2 ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-1.5 ${
                   filterAiPriorities.includes('MEDIUM')
                     ? 'bg-sky-950 text-sky-100 border-sky-500 ring-1 ring-sky-500 shadow-md shadow-sky-950/60'
                     : 'bg-slate-900/90 text-slate-400 border-slate-700/80 hover:border-sky-700/70 hover:text-sky-300'
@@ -1611,7 +1830,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                 type="button"
                 id="btn-filter-ai-low"
                 onClick={() => handleToggleAiPriority('LOW')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-2 ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-1.5 ${
                   filterAiPriorities.includes('LOW')
                     ? 'bg-emerald-950 text-emerald-100 border-emerald-500 ring-1 ring-emerald-500 shadow-md shadow-emerald-950/60'
                     : 'bg-slate-900/90 text-slate-400 border-slate-700/80 hover:border-emerald-700/70 hover:text-emerald-300'
@@ -1635,6 +1854,44 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                 </span>
               </button>
             </div>
+
+            {/* Field Supervisor Urgent Focus Banner */}
+            {filterAiPriorities.length > 0 &&
+              (filterAiPriorities.includes('CRITICAL') || filterAiPriorities.includes('HIGH')) && (
+                <div className="mt-2.5 p-2 rounded-lg bg-gradient-to-r from-rose-950/70 via-amber-950/40 to-slate-950 border border-rose-700/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs font-mono">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 animate-pulse" />
+                    <div>
+                      <span className="font-bold text-rose-200">SUPERVISOR URGENT FOCUS: </span>
+                      <span className="text-slate-300">
+                        Displaying {filteredDefects.length} high-urgency tasks requiring prompt track possession or caution order dispatch.
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveViewTab('PREDICTIVE_TIMELINE');
+                        railwayAudio.playBeep(800, 0.04);
+                      }}
+                      className="px-2 py-0.5 rounded bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-700 text-[10.5px] cursor-pointer"
+                    >
+                      View on Predictive Map
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPdfReportModalOpen(true);
+                        railwayAudio.playBeep(800, 0.04);
+                      }}
+                      className="px-2 py-0.5 rounded bg-rose-900/80 hover:bg-rose-800 text-rose-200 border border-rose-600 text-[10.5px] font-bold cursor-pointer"
+                    >
+                      Export Urgent PDF
+                    </button>
+                  </div>
+                </div>
+              )}
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-slate-800 max-h-[580px] overflow-y-auto">
@@ -1647,7 +1904,17 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                   <th className="py-2.5 px-3">Classification</th>
                   <th className="py-2.5 px-3">Logged Severity</th>
                   <th className="py-2.5 px-3 text-rose-300">Predictive Criticality</th>
-                  <th className="py-2.5 px-3">AI Suggested Priority</th>
+                  <th className="py-2.5 px-3">
+                    <div className="flex items-center gap-1.5 text-indigo-300">
+                      <Sparkles className="w-3 h-3 text-indigo-400" />
+                      <span>AI Suggested Priority</span>
+                      {filterAiPriorities.length > 0 && (
+                        <span className="px-1.5 py-0.2 rounded bg-indigo-900 border border-indigo-500 text-indigo-200 text-[9px] font-bold">
+                          {filterAiPriorities.join('/')}
+                        </span>
+                      )}
+                    </div>
+                  </th>
                   <th className="py-2.5 px-3">Site GPS Location</th>
                   <th className="py-2.5 px-3">Site Photo</th>
                   <th className="py-2.5 px-3 text-sky-300">Field QR &amp; Protocols</th>
@@ -1658,8 +1925,8 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
               <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
                 {filteredDefects.map((d) => {
                   const aiAnalysis = d.aiVisualAnalysis || d.photoAttachment?.aiAnalysis;
-                  const aiPriority = aiAnalysis?.suggestedPriority;
-                  const isAiFiltered = aiPriority && filterAiPriorities.includes(aiPriority);
+                  const aiPriority = getDefectAiPriority(d);
+                  const isAiFiltered = filterAiPriorities.length > 0 && filterAiPriorities.includes(aiPriority);
 
                   return (
                     <tr
