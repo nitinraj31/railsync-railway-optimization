@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Bug,
   AlertTriangle,
@@ -27,6 +27,14 @@ import {
   Eye,
   Image as ImageIcon,
   Sparkles,
+  Radio,
+  Bell,
+  Volume2,
+  FileText,
+  Printer,
+  Download,
+  QrCode,
+  Clock,
 } from 'lucide-react';
 import {
   Defect,
@@ -38,6 +46,7 @@ import {
   GeoCoordinates,
   DefectPhotoAttachment,
   DefectAiVisualAnalysis,
+  SupervisorPushAlert,
 } from '../../types';
 import { submitDefect } from '../../services/api';
 import { DefectLocationMapModal } from '../common/DefectLocationMapModal';
@@ -46,8 +55,19 @@ import { DefectCameraCapture } from '../common/DefectCameraCapture';
 import { DefectPhotoModal } from '../common/DefectPhotoModal';
 import { DefectMapThumbnail } from '../common/DefectMapThumbnail';
 import { DefectAiPhotoAnalysisCard } from '../common/DefectAiPhotoAnalysisCard';
+import { DefectInspectionReportModal } from '../modals/DefectInspectionReportModal';
+import { DefectQrCodeModal } from '../modals/DefectQrCodeModal';
+import { DefectPredictiveTimelineMap } from '../predictive/DefectPredictiveTimelineMap';
+import { predictAssetCriticality } from '../../services/defectPredictiveCriticalityService';
 import { analyzeDefectPhotoWithAi } from '../../services/defectVisionAiService';
 import { railwayAudio } from '../../services/railwayAudio';
+import { SupervisorPushAlertBanner } from '../common/SupervisorPushAlertBanner';
+import {
+  dispatchCriticalDefectPushAlert,
+  getStoredPushAlerts,
+  subscribeToSupervisorAlerts,
+  requestPushNotificationPermission,
+} from '../../services/supervisorPushNotificationService';
 
 interface DefectReportingScreenProps {
   currentUser: User | null;
@@ -55,6 +75,7 @@ interface DefectReportingScreenProps {
   corridors: Corridor[];
   defects: Defect[];
   onRefreshDefects: () => void;
+  initialSelectedDefectId?: string;
 }
 
 export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
@@ -63,6 +84,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
   corridors,
   defects,
   onRefreshDefects,
+  initialSelectedDefectId,
 }) => {
   const [selectedAssetId, setSelectedAssetId] = useState('A023');
   const [department, setDepartment] = useState<DepartmentType>('S&T');
@@ -106,6 +128,28 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
     photoAttachment?: DefectPhotoAttachment;
   } | null>(null);
 
+  // Supervisor Emergency Push Alert state
+  const [activeSupervisorAlert, setActiveSupervisorAlert] = useState<SupervisorPushAlert | null>(null);
+
+  // Subscribe to real-time supervisor push alerts (including across browser tabs)
+  useEffect(() => {
+    // Check initial stored unacknowledged alert
+    const stored = getStoredPushAlerts();
+    const unacked = stored.find((a) => a.deliveryStatus !== 'ACKNOWLEDGED');
+    if (unacked) {
+      setActiveSupervisorAlert(unacked);
+    }
+
+    // Subscribe to incoming push alerts broadcast
+    const unsubscribe = subscribeToSupervisorAlerts((alert) => {
+      setActiveSupervisorAlert(alert);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   // Table Filters
   const [filterSeverity, setFilterSeverity] = useState<string>('ALL');
   const [filterDept, setFilterDept] = useState<string>('ALL');
@@ -113,6 +157,43 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
   const [filterPhotosOnly, setFilterPhotosOnly] = useState(false);
   const [filterAiPriorities, setFilterAiPriorities] = useState<PriorityLevel[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Screen View Mode: Active Defect Registry vs Predictive Maintenance Timeline Map
+  const [activeViewTab, setActiveViewTab] = useState<'REGISTRY' | 'PREDICTIVE_TIMELINE'>('REGISTRY');
+  const [selectedDefectForPredictiveTimeline, setSelectedDefectForPredictiveTimeline] = useState<string | undefined>(undefined);
+
+  // Calculate count of assets projected to reach CRITICAL state within 7 days
+  const criticalHorizonAssetsCount = useMemo(() => {
+    return defects.filter((d) => {
+      const pred = predictAssetCriticality(d, defects);
+      return pred.daysUntilCritical <= 7;
+    }).length;
+  }, [defects]);
+
+  // PDF Maintenance Inspection Report state
+  const [isPdfReportModalOpen, setIsPdfReportModalOpen] = useState(false);
+
+  // Field QR Code & Safety Protocols state
+  const [selectedDefectForQr, setSelectedDefectForQr] = useState<Defect | null>(null);
+
+  // Auto-open QR & Safety Protocols if navigated with deep link (?defectId=... or hash)
+  useEffect(() => {
+    if (initialSelectedDefectId && defects.length > 0) {
+      const found = defects.find((d) => d.defectId === initialSelectedDefectId);
+      if (found) {
+        setSelectedDefectForQr(found);
+      }
+    } else if (typeof window !== 'undefined' && window.location.search) {
+      const params = new URLSearchParams(window.location.search);
+      const urlDefectId = params.get('defectId');
+      if (urlDefectId && defects.length > 0) {
+        const found = defects.find((d) => d.defectId === urlDefectId);
+        if (found) {
+          setSelectedDefectForQr(found);
+        }
+      }
+    }
+  }, [initialSelectedDefectId, defects]);
 
   const handleAssetSelect = (id: string) => {
     setSelectedAssetId(id);
@@ -358,6 +439,27 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
         photoAttachment: created.photoAttachment,
       });
 
+      // If defect is CRITICAL, immediately dispatch push notification to nearby maintenance supervisors
+      if (severity === 'CRITICAL' || created.severity === 'CRITICAL') {
+        try {
+          const pushAlert = await dispatchCriticalDefectPushAlert({
+            defectId: created.defectId,
+            corridorId: created.corridorId,
+            section: created.geoCoordinates?.railwayChainageKm || `Corridor ${created.corridorId} Section`,
+            chainageKm: created.geoCoordinates?.railwayChainageKm,
+            defectType: created.defectType,
+            description: created.description,
+            reportedBy: created.reportedBy,
+            geoCoordinates: created.geoCoordinates,
+            speedRestrictionKmph: created.speedRestrictionKmph,
+            department: created.department,
+          });
+          setActiveSupervisorAlert(pushAlert);
+        } catch (pushErr) {
+          console.error('Failed to dispatch supervisor push alert:', pushErr);
+        }
+      }
+
       // Clear geo coordinates, photo attachment, and AI visual analysis after successful report
       setGeoCoordinates(null);
       setPhotoAttachment(null);
@@ -421,6 +523,17 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
     return true;
   });
 
+  const activeFilterSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (filterSeverity !== 'ALL') parts.push(`Severity: ${filterSeverity}`);
+    if (filterDept !== 'ALL') parts.push(`Dept: ${filterDept}`);
+    if (filterGpsOnly) parts.push('GPS Tagged Only');
+    if (filterPhotosOnly) parts.push('Photo Evidence Only');
+    if (filterAiPriorities.length > 0) parts.push(`AI Priority: ${filterAiPriorities.join('/')}`);
+    if (searchQuery.trim()) parts.push(`Search: "${searchQuery.trim()}"`);
+    return parts.length > 0 ? parts.join(' | ') : 'All Active Track Defects';
+  }, [filterSeverity, filterDept, filterGpsOnly, filterPhotosOnly, filterAiPriorities, searchQuery]);
+
   const geotaggedCount = defects.filter((d) => !!d.geoCoordinates).length;
   const photosCount = defects.filter((d) => !!d.photoAttachment).length;
 
@@ -431,6 +544,24 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
     LOW: defects.filter((d) => getDefectAiPriority(d) === 'LOW').length,
     TOTAL: defects.filter((d) => !!getDefectAiPriority(d)).length,
   };
+
+  // Proactive criticality prediction for currently selected asset in reporting form
+  const activeFormPrediction = useMemo(() => {
+    const dummy: Defect = {
+      defectId: 'FORM-PREVIEW',
+      assetId: selectedAssetId || (assets[0]?.id || 'A001'),
+      department,
+      corridorId,
+      defectType: defectType || 'General Track Wear',
+      severity,
+      detectedDate: detectedDate || '2026-09-13',
+      description: description || 'Form inspection observation',
+      reportedBy: reportedBy || 'Inspector',
+      status: 'PENDING_PRIORITY_ANALYSIS',
+      geoCoordinates,
+    };
+    return predictAssetCriticality(dummy, defects);
+  }, [selectedAssetId, assets, department, corridorId, defectType, severity, detectedDate, description, reportedBy, geoCoordinates, defects]);
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
@@ -448,7 +579,69 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              id="btn-switch-to-predictive-map"
+              onClick={() => {
+                setActiveViewTab(activeViewTab === 'PREDICTIVE_TIMELINE' ? 'REGISTRY' : 'PREDICTIVE_TIMELINE');
+                railwayAudio.playBeep(880, 0.05);
+              }}
+              className={`text-xs font-mono px-2.5 py-1 rounded flex items-center gap-1.5 transition-all cursor-pointer shadow-sm border ${
+                activeViewTab === 'PREDICTIVE_TIMELINE'
+                  ? 'bg-rose-900 text-white border-rose-500'
+                  : 'bg-rose-950/80 hover:bg-rose-900 text-rose-300 border-rose-700'
+              }`}
+              title="Toggle Predictive Maintenance Timeline on Map"
+            >
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+              <span>
+                {criticalHorizonAssetsCount > 0
+                  ? `${criticalHorizonAssetsCount} CRITICAL HORIZON (<7D)`
+                  : 'PREDICTIVE MAP'}
+              </span>
+            </button>
+            <button
+              type="button"
+              id="btn-open-pdf-inspection-report-top"
+              onClick={() => {
+                setIsPdfReportModalOpen(true);
+                railwayAudio.playBeep(840, 0.05);
+              }}
+              className="text-xs font-mono px-3 py-1 rounded bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-amber-950/60"
+              title="Generate and download formatted PDF Maintenance Inspection Report for current defects"
+            >
+              <FileText className="w-3.5 h-3.5 text-slate-950" />
+              <span>PDF INSPECTION REPORT</span>
+            </button>
+            <button
+              type="button"
+              id="btn-test-supervisor-push"
+              onClick={async () => {
+                await requestPushNotificationPermission();
+                const alert = await dispatchCriticalDefectPushAlert({
+                  defectId: `DEF-CRIT-${Math.floor(100 + Math.random() * 900)}`,
+                  corridorId: corridorId || 'COR-SBC-MYS',
+                  section: geoCoordinates?.railwayChainageKm || 'KM 28.4/4 Up Main',
+                  chainageKm: geoCoordinates?.railwayChainageKm || 'KM 28.4/4 Up Main',
+                  defectType: defectType || 'Critical Track Weld Fracture / Rail Separation',
+                  description:
+                    description ||
+                    'Transverse fissuring observed at thermite weld junction under dynamic 25T axle load. Immediate supervisor inspection required.',
+                  reportedBy: reportedBy || currentUser?.name || 'Section Safety Auditor',
+                  geoCoordinates: geoCoordinates || undefined,
+                  speedRestrictionKmph: 30,
+                  department: department || 'ENGINEERING',
+                });
+                setActiveSupervisorAlert(alert);
+              }}
+              className="text-xs font-mono px-2.5 py-1 rounded bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-700 flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+              title="Simulate dispatching a Critical Defect push alert to nearby track maintenance supervisors"
+            >
+              <Radio className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+              <span>TEST SUPERVISOR PUSH</span>
+            </button>
             <span className="text-xs font-mono px-2.5 py-1 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
               <span>{aiPriorityCounts.TOTAL} AI EVALUATED</span>
@@ -467,6 +660,14 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Real-time Push Notification Alert Banner for Maintenance Supervisors */}
+      {activeSupervisorAlert && (
+        <SupervisorPushAlertBanner
+          alert={activeSupervisorAlert}
+          onDismiss={() => setActiveSupervisorAlert(null)}
+        />
+      )}
 
       {/* Submission Success Banner */}
       {submissionSuccess && (
@@ -588,6 +789,44 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                 </div>
               )}
 
+              {/* On-Site Field QR Placard Generation Banner */}
+              <div className="mt-3 pt-2.5 border-t border-emerald-900/60 flex flex-wrap items-center justify-between gap-2.5">
+                <span className="text-[11px] text-slate-300 font-mono">
+                  Defect logged into RailSync ITMS. Generate an on-site field QR placard for track crews:
+                </span>
+                <button
+                  type="button"
+                  id="btn-success-view-qr"
+                  onClick={() => {
+                    const found = defects.find((d) => d.defectId === submissionSuccess.id);
+                    if (found) {
+                      setSelectedDefectForQr(found);
+                    } else {
+                      setSelectedDefectForQr({
+                        defectId: submissionSuccess.id,
+                        assetId: selectedAssetId,
+                        department,
+                        corridorId,
+                        defectType,
+                        severity,
+                        detectedDate,
+                        description,
+                        reportedBy,
+                        speedRestrictionKmph: speedRestriction,
+                        status: submissionSuccess.status as any,
+                        geoCoordinates: submissionSuccess.geoCoordinates,
+                        photoAttachment: submissionSuccess.photoAttachment,
+                      });
+                    }
+                    railwayAudio.playBeep(880, 0.05);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-sky-600 to-blue-700 hover:from-sky-500 hover:to-blue-600 text-white font-mono text-xs font-bold shadow-md cursor-pointer transition-all"
+                >
+                  <QrCode className="w-4 h-4" />
+                  <span>Generate Field QR Placard &amp; Safety Protocols</span>
+                </button>
+              </div>
+
               <p className="text-[11px] text-slate-400 mt-1.5">
                 Defect sent to Python backend and registered for automatic maintenance prioritization.
               </p>
@@ -596,7 +835,76 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Top View Mode Switcher: Active Defect Registry vs Predictive Criticality Timeline Map */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-2 bg-[#0a1122] rounded-xl border border-slate-800 shadow-md">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            id="btn-view-mode-registry"
+            onClick={() => {
+              setActiveViewTab('REGISTRY');
+              railwayAudio.playBeep(600, 0.04);
+            }}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-mono text-xs font-bold transition-all cursor-pointer ${
+              activeViewTab === 'REGISTRY'
+                ? 'bg-sky-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>Active Defect Registry &amp; Logging</span>
+            <span className="px-1.5 py-0.2 rounded bg-slate-900/80 text-[10px] text-sky-200 border border-slate-700">
+              {defects.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            id="btn-view-mode-predictive-timeline"
+            onClick={() => {
+              setActiveViewTab('PREDICTIVE_TIMELINE');
+              railwayAudio.playBeep(880, 0.05);
+            }}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-mono text-xs font-bold transition-all cursor-pointer ${
+              activeViewTab === 'PREDICTIVE_TIMELINE'
+                ? 'bg-gradient-to-r from-rose-700 to-amber-700 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <Clock className="w-4 h-4 text-amber-400" />
+            <span>Predictive Criticality Timeline Map</span>
+            {criticalHorizonAssetsCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-rose-950 text-rose-200 border border-rose-600 text-[10px] animate-pulse font-bold">
+                {criticalHorizonAssetsCount} Near Critical (&lt;7d)
+              </span>
+            )}
+          </button>
+        </div>
+
+        <div className="text-[11px] font-mono text-slate-400 hidden md:flex items-center gap-2">
+          {activeViewTab === 'PREDICTIVE_TIMELINE' ? (
+            <span className="text-amber-300 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+              <span>Historical Pattern Degradation Forecast • 30-Day Simulation &amp; Caution Orders</span>
+            </span>
+          ) : (
+            <span>
+              Real-time ITMS Defect Logging, Geodetic Radar &amp; Field QR Placards
+            </span>
+          )}
+        </div>
+      </div>
+
+      {activeViewTab === 'PREDICTIVE_TIMELINE' ? (
+        <DefectPredictiveTimelineMap
+          defects={defects}
+          selectedDefectId={selectedDefectForPredictiveTimeline}
+          onSelectDefect={(id) => setSelectedDefectForPredictiveTimeline(id)}
+          onOpenDefectLocationModal={(d) => setSelectedDefectForLocation(d)}
+          onScheduleBlockSuccess={() => onRefreshDefects()}
+        />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Form Container */}
         <div className="lg:col-span-1 bg-[#0e172e] p-5 rounded-xl border border-sky-950/80 shadow-md">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono mb-4 pb-2 border-b border-slate-800">
@@ -715,6 +1023,37 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                   severity={severity}
                   onOpenFullModal={geoCoordinates ? handleOpenCurrentMapModal : undefined}
                 />
+              </div>
+
+              {/* Historical Defect Pattern Criticality Forecast for this Asset/Defect */}
+              <div className="mb-2.5 p-2.5 rounded-lg bg-[#0b1426] border border-amber-500/40 text-[11px] font-mono space-y-1.5 shadow-sm">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="flex items-center gap-1.5 text-amber-300 font-bold uppercase tracking-wider">
+                    <Clock className="w-3 h-3 text-amber-400" />
+                    <span>Predictive Criticality Forecast</span>
+                  </span>
+                  <span className="px-1.5 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800 font-bold">
+                    CRITICAL in ~{activeFormPrediction.daysUntilCritical.toFixed(1)}d
+                  </span>
+                </div>
+                <p className="text-slate-300 text-[10px] leading-relaxed">
+                  Based on historical defect patterns for asset <strong className="text-white">{selectedAssetId}</strong> ({activeFormPrediction.historicalDefectCount} past records), failure reaches CRITICAL state by <strong className="text-rose-300">{activeFormPrediction.predictedCriticalDate}</strong>.
+                </p>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[9.5px] text-slate-400">
+                    Degradation: ~{activeFormPrediction.dailyDegradationRate}%/day
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveViewTab('PREDICTIVE_TIMELINE');
+                      railwayAudio.playBeep(880, 0.04);
+                    }}
+                    className="px-2 py-0.5 rounded bg-sky-950 hover:bg-sky-900 border border-sky-600 text-sky-200 text-[9.5px] font-bold transition-all cursor-pointer"
+                  >
+                    View Timeline Map →
+                  </button>
+                </div>
               </div>
 
               {/* Geo-coordinates Display Card (When Captured) */}
@@ -1046,6 +1385,20 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                 />
               </div>
 
+              <button
+                type="button"
+                id="btn-registry-export-pdf"
+                onClick={() => {
+                  setIsPdfReportModalOpen(true);
+                  railwayAudio.playBeep(800, 0.04);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono font-bold transition-all border cursor-pointer bg-gradient-to-r from-amber-950/90 to-amber-900/90 hover:from-amber-900 hover:to-amber-850 text-amber-300 border-amber-600 shadow-sm"
+                title="Generate and download formatted PDF maintenance inspection report for the current list of defects"
+              >
+                <FileText className="w-3.5 h-3.5 text-amber-400" />
+                <span>PDF Report ({filteredDefects.length})</span>
+              </button>
+
               <select
                 value={filterSeverity}
                 onChange={(e) => setFilterSeverity(e.target.value)}
@@ -1293,9 +1646,11 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                   <th className="py-2.5 px-3">Corridor</th>
                   <th className="py-2.5 px-3">Classification</th>
                   <th className="py-2.5 px-3">Logged Severity</th>
+                  <th className="py-2.5 px-3 text-rose-300">Predictive Criticality</th>
                   <th className="py-2.5 px-3">AI Suggested Priority</th>
                   <th className="py-2.5 px-3">Site GPS Location</th>
                   <th className="py-2.5 px-3">Site Photo</th>
+                  <th className="py-2.5 px-3 text-sky-300">Field QR &amp; Protocols</th>
                   <th className="py-2.5 px-3">Restriction</th>
                   <th className="py-2.5 px-3">Status</th>
                 </tr>
@@ -1333,6 +1688,32 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                         >
                           {d.severity}
                         </span>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        {(() => {
+                          const pred = predictAssetCriticality(d, defects);
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedDefectForPredictiveTimeline(d.defectId);
+                                setActiveViewTab('PREDICTIVE_TIMELINE');
+                                railwayAudio.playBeep(880, 0.04);
+                              }}
+                              className={`px-2 py-1 rounded text-[10px] font-mono font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                                pred.daysUntilCritical <= 7
+                                  ? 'bg-rose-950 text-rose-300 border-rose-700 hover:bg-rose-900 shadow-sm animate-pulse'
+                                  : pred.daysUntilCritical <= 14
+                                  ? 'bg-amber-950 text-amber-300 border-amber-700 hover:bg-amber-900'
+                                  : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                              }`}
+                              title={`Historical Pattern Forecast: Reaches CRITICAL in ${pred.daysUntilCritical.toFixed(1)} days (${pred.predictedCriticalDate}). Click to open predictive timeline map.`}
+                            >
+                              <Clock className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>{pred.daysUntilCritical.toFixed(1)}d to CRIT</span>
+                            </button>
+                          );
+                        })()}
                       </td>
                       <td className="py-2.5 px-3">
                         {aiPriority ? (
@@ -1408,6 +1789,21 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                         <span className="text-slate-600 text-[10px]">No Photo</span>
                       )}
                     </td>
+                    <td className="py-2.5 px-3">
+                      <button
+                        type="button"
+                        id={`btn-view-qr-${d.defectId}`}
+                        onClick={() => {
+                          setSelectedDefectForQr(d);
+                          railwayAudio.playBeep(880, 0.04);
+                        }}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-gradient-to-r from-sky-950/90 to-blue-950/90 hover:from-sky-900 hover:to-blue-900 border border-sky-600/80 hover:border-sky-400 text-sky-200 text-[10px] font-mono font-bold transition-all cursor-pointer shadow-sm group"
+                        title="Generate unique QR code for field staff & view safety protocols"
+                      >
+                        <QrCode className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform shrink-0" />
+                        <span>QR Tag</span>
+                      </button>
+                    </td>
                     <td className="py-2.5 px-3 text-amber-300">
                       {d.speedRestrictionKmph ? `${d.speedRestrictionKmph} km/h` : 'None'}
                     </td>
@@ -1422,17 +1818,51 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* Precise Defect Site Identification Map Modal */}
       <DefectLocationMapModal
         defect={selectedDefectForLocation}
         onClose={() => setSelectedDefectForLocation(null)}
+        onOpenPredictiveTimelineScreen={(defectId) => {
+          setSelectedDefectForLocation(null);
+          setActiveViewTab('PREDICTIVE_TIMELINE');
+          setSelectedDefectForPredictiveTimeline(defectId);
+        }}
       />
 
       {/* Defect Photographic Evidence Modal */}
       <DefectPhotoModal
         defect={selectedDefectForPhoto}
         onClose={() => setSelectedDefectForPhoto(null)}
+        onOpenQrProtocols={(d) => {
+          setSelectedDefectForPhoto(null);
+          setSelectedDefectForQr(d);
+        }}
+      />
+
+      {/* Defect Field QR Code & Safety Protocols Modal */}
+      <DefectQrCodeModal
+        defect={selectedDefectForQr}
+        isOpen={!!selectedDefectForQr}
+        onClose={() => setSelectedDefectForQr(null)}
+        onUpdateDefectStatus={(defectId, newStatus) => {
+          const target = defects.find((d) => d.defectId === defectId);
+          if (target) {
+            target.status = newStatus;
+            onRefreshDefects();
+          }
+        }}
+      />
+
+      {/* PDF Maintenance Inspection Report Modal */}
+      <DefectInspectionReportModal
+        isOpen={isPdfReportModalOpen}
+        onClose={() => setIsPdfReportModalOpen(false)}
+        filteredDefects={filteredDefects}
+        allDefects={defects}
+        activeFilterSummary={activeFilterSummary}
+        inspectorName={reportedBy || currentUser?.name || 'Senior Section Engineer (P-Way / Safety)'}
       />
     </div>
   );

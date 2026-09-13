@@ -16,9 +16,20 @@ import {
   Sparkles,
   Info,
   Navigation,
+  History,
+  AlertTriangle,
+  Wrench,
+  Clock,
+  ShieldAlert,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { GeoCoordinates } from '../../types';
 import { railwayAudio } from '../../services/railwayAudio';
+import {
+  getHistoricalIncidentsForLocation,
+  HistoricalMaintenanceIncident,
+} from '../../services/incidentHistoryService';
 
 interface DefectMapThumbnailProps {
   geoCoordinates: GeoCoordinates | null;
@@ -116,6 +127,11 @@ export const DefectMapThumbnail: React.FC<DefectMapThumbnailProps> = ({
   const [isKmConfirmed, setIsKmConfirmed] = useState<boolean>(false);
   const [hoveredKm, setHoveredKm] = useState<number | null>(null);
 
+  // Incident History from Audit Logs states
+  const [showIncidentHistory, setShowIncidentHistory] = useState<boolean>(true);
+  const [selectedHistoricalIncident, setSelectedHistoricalIncident] = useState<HistoricalMaintenanceIncident | null>(null);
+  const [incidentSeverityFilter, setIncidentSeverityFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH'>('ALL');
+
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const corridor = useMemo(() => {
@@ -162,6 +178,19 @@ export const DefectMapThumbnail: React.FC<DefectMapThumbnailProps> = ({
 
   const minVisibleKm = useMemo(() => currentKm - spanKm / 2, [currentKm, spanKm]);
   const maxVisibleKm = useMemo(() => currentKm + spanKm / 2, [currentKm, spanKm]);
+
+  // Retrieve historical maintenance issues for this GPS location and corridor from audit logs
+  const historicalIncidents = useMemo(() => {
+    return getHistoricalIncidentsForLocation(corridorId, currentKm, geoCoordinates);
+  }, [corridorId, currentKm, geoCoordinates]);
+
+  // Filter visible incidents according to current zoom span and severity filter
+  const visibleIncidents = useMemo(() => {
+    return historicalIncidents.filter((inc) => {
+      if (incidentSeverityFilter !== 'ALL' && inc.severity !== incidentSeverityFilter) return false;
+      return inc.chainageKm >= minVisibleKm - 0.25 && inc.chainageKm <= maxVisibleKm + 0.25;
+    });
+  }, [historicalIncidents, minVisibleKm, maxVisibleKm, incidentSeverityFilter]);
 
   // Nearest catenary mast number (typically every 50-100m, odd for UP, even for DN in Indian Railways)
   const mastNumber = useMemo(() => {
@@ -315,8 +344,36 @@ export const DefectMapThumbnail: React.FC<DefectMapThumbnailProps> = ({
           </div>
         </div>
 
-        {/* Action Buttons: Layers, Zoom, Enlarge */}
-        <div className="flex items-center gap-1.5">
+        {/* Action Buttons: Incident History, Layers, Zoom, Enlarge */}
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {/* Incident History Toggle Button */}
+          <button
+            type="button"
+            id="btn-toggle-incident-history"
+            onClick={() => {
+              const nextState = !showIncidentHistory;
+              setShowIncidentHistory(nextState);
+              if (!nextState) setSelectedHistoricalIncident(null);
+              railwayAudio.playBeep(nextState ? 880 : 440, 0.05);
+            }}
+            className={`p-1.5 px-2 rounded-lg text-[10px] font-bold font-mono flex items-center gap-1.5 border transition-all cursor-pointer ${
+              showIncidentHistory
+                ? 'bg-amber-950/90 text-amber-300 border-amber-500 shadow-md shadow-amber-950/60 ring-1 ring-amber-500/50'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            }`}
+            title="Toggle Historical Maintenance Issues from Audit Logs at this GPS Location"
+          >
+            <History className={`w-3.5 h-3.5 ${showIncidentHistory ? 'text-amber-400 animate-pulse' : 'text-slate-400'}`} />
+            <span className="hidden sm:inline">Incident History</span>
+            <span
+              className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                showIncidentHistory ? 'bg-amber-500 text-slate-950' : 'bg-slate-700 text-slate-300'
+              }`}
+            >
+              {historicalIncidents.length}
+            </span>
+          </button>
+
           {/* Layer switcher */}
           <button
             type="button"
@@ -621,6 +678,117 @@ export const DefectMapThumbnail: React.FC<DefectMapThumbnailProps> = ({
             </g>
           )}
 
+          {/* HISTORICAL MAINTENANCE INCIDENT MARKERS FROM AUDIT LOGS */}
+          {showIncidentHistory &&
+            visibleIncidents.map((inc) => {
+              const incX = kmToSvgX(inc.chainageKm);
+              const incY = inc.track === 'UP_MAIN' ? 82 : 142;
+              const isSelected = selectedHistoricalIncident?.id === inc.id;
+              const sevColor =
+                inc.severity === 'CRITICAL'
+                  ? '#ef4444'
+                  : inc.severity === 'HIGH'
+                  ? '#f59e0b'
+                  : '#38bdf8';
+
+              const stemTop = inc.track === 'UP_MAIN' ? 38 : 158;
+
+              return (
+                <g
+                  key={`incident-${inc.id}`}
+                  id={`historical-marker-${inc.id}`}
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedHistoricalIncident(isSelected ? null : inc);
+                    railwayAudio.playBeep(isSelected ? 440 : 820, 0.04);
+                  }}
+                >
+                  {/* Stem line from marker tag down to rail coordinate */}
+                  <line
+                    x1={incX}
+                    y1={stemTop}
+                    x2={incX}
+                    y2={incY}
+                    stroke={sevColor}
+                    strokeWidth={isSelected ? '2' : '1.2'}
+                    strokeDasharray="3,2"
+                    opacity={isSelected ? 1 : 0.75}
+                  />
+
+                  {/* Pulsing beacon if selected */}
+                  {isSelected && (
+                    <circle
+                      cx={incX}
+                      cy={stemTop}
+                      r="16"
+                      fill="none"
+                      stroke={sevColor}
+                      strokeWidth="2"
+                    >
+                      <animate attributeName="r" values="10;22" dur="1.5s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" values="0.9;0" dur="1.5s" repeatCount="indefinite" />
+                    </circle>
+                  )}
+
+                  {/* Incident Target Halo on the rail */}
+                  <circle
+                    cx={incX}
+                    cy={incY}
+                    r={isSelected ? '6' : '4'}
+                    fill={sevColor}
+                    stroke="#020617"
+                    strokeWidth="1.5"
+                  />
+
+                  {/* Diamond / Warning Flag on Stem */}
+                  <g transform={`translate(${incX}, ${stemTop})`}>
+                    {/* Diamond badge */}
+                    <polygon
+                      points="0,-10 10,0 0,10 -10,0"
+                      fill={isSelected ? '#78350f' : '#1e1b4b'}
+                      stroke={sevColor}
+                      strokeWidth={isSelected ? '2.2' : '1.5'}
+                    />
+                    <text
+                      x="0"
+                      y="3.5"
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize="9"
+                      fontWeight="bold"
+                      fontFamily="sans-serif"
+                    >
+                      !
+                    </text>
+
+                    {/* Small Audit ID Tag */}
+                    <rect
+                      x="-36"
+                      y={inc.track === 'UP_MAIN' ? -25 : 12}
+                      width="72"
+                      height="15"
+                      rx="3"
+                      fill="#020617"
+                      stroke={isSelected ? '#fbbf24' : '#475569'}
+                      strokeWidth={isSelected ? '1.5' : '0.8'}
+                    />
+                    <text
+                      x="0"
+                      y={inc.track === 'UP_MAIN' ? -15 : 22}
+                      textAnchor="middle"
+                      fill={isSelected ? '#fde68a' : '#cbd5e1'}
+                      fontSize="7.5"
+                      fontWeight="bold"
+                      fontFamily="monospace"
+                    >
+                      {inc.auditLogId}
+                    </text>
+                  </g>
+                </g>
+              );
+            })}
+
           {/* Compass Rose in upper right */}
           <g transform="translate(565, 30)">
             <circle cx="0" cy="0" r="14" fill="#0f172a" stroke="#334155" strokeWidth="1" />
@@ -765,6 +933,226 @@ export const DefectMapThumbnail: React.FC<DefectMapThumbnailProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Historical Maintenance Incidents from Audit Logs Drawer */}
+      {showIncidentHistory && (
+        <div
+          id="incident-history-panel"
+          className="p-3 rounded-lg bg-gradient-to-b from-slate-900 to-slate-950 border border-amber-500/50 shadow-lg space-y-2.5"
+        >
+          {/* Panel Header */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-amber-950/80 border border-amber-600/70 text-amber-400">
+                <History className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-amber-300 uppercase tracking-wide">
+                    Historical Maintenance Issues
+                  </span>
+                  <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-700 font-mono">
+                    {historicalIncidents.length} AUDIT LOG RECORDS
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Track-section historical failures & rectifications at this GPS location ({corridor.code})
+                </p>
+              </div>
+            </div>
+
+            {/* Severity Filter */}
+            <div className="flex items-center gap-1 text-[10px]">
+              <span className="text-slate-500 mr-1">Filter:</span>
+              {(['ALL', 'CRITICAL', 'HIGH'] as const).map((sev) => (
+                <button
+                  key={sev}
+                  type="button"
+                  onClick={() => {
+                    setIncidentSeverityFilter(sev);
+                    railwayAudio.playBeep(600, 0.03);
+                  }}
+                  className={`px-2 py-0.5 rounded font-mono transition-colors cursor-pointer border ${
+                    incidentSeverityFilter === sev
+                      ? 'bg-amber-950 text-amber-200 border-amber-600 font-bold'
+                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-300'
+                  }`}
+                >
+                  {sev}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Selected Incident In-Depth Detail Card */}
+          {selectedHistoricalIncident && (
+            <div
+              id="selected-historical-incident-card"
+              className="p-2.5 rounded-lg bg-slate-950 border border-amber-500/70 shadow-md space-y-2 text-xs"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono border ${
+                      selectedHistoricalIncident.severity === 'CRITICAL'
+                        ? 'bg-rose-950 text-rose-300 border-rose-600'
+                        : selectedHistoricalIncident.severity === 'HIGH'
+                        ? 'bg-amber-950 text-amber-300 border-amber-600'
+                        : 'bg-sky-950 text-sky-300 border-sky-600'
+                    }`}
+                  >
+                    {selectedHistoricalIncident.severity}
+                  </span>
+                  <span className="font-bold text-white font-mono text-xs">
+                    {selectedHistoricalIncident.auditLogId}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {selectedHistoricalIncident.dateFormatted}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateLocationToKm(
+                        selectedHistoricalIncident.chainageKm,
+                        selectedHistoricalIncident.track
+                      );
+                      railwayAudio.playBeep(920, 0.05);
+                    }}
+                    className="px-2 py-0.5 rounded bg-sky-900/80 hover:bg-sky-800 text-sky-200 border border-sky-600 text-[10px] font-mono flex items-center gap-1 transition-colors cursor-pointer"
+                    title="Center map on this historical incident chainage"
+                  >
+                    <Crosshair className="w-3 h-3 text-sky-400" />
+                    <span>Center Map</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHistoricalIncident(null)}
+                    className="text-slate-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-slate-800"
+                    title="Close detail view"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              {/* Incident Title */}
+              <div>
+                <h4 className="font-semibold text-amber-200 text-xs flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                  <span>{selectedHistoricalIncident.issueType}</span>
+                </h4>
+                <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
+                  {selectedHistoricalIncident.defectSummary}
+                </p>
+              </div>
+
+              {/* Action Taken & Verification Details */}
+              <div className="p-2 rounded bg-slate-900/90 border border-slate-800 space-y-1.5">
+                <div className="flex items-start gap-1.5 text-[11px] text-emerald-300">
+                  <Wrench className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-slate-200 block text-[10px]">MAINTENANCE REMEDY APPLIED:</span>
+                    <span>{selectedHistoricalIncident.maintenanceActionTaken}</span>
+                  </div>
+                </div>
+
+                {selectedHistoricalIncident.speedRestrictionImposed && (
+                  <div className="flex items-center gap-1.5 text-[10px] text-amber-400 font-mono pt-1 border-t border-slate-800">
+                    <ShieldAlert className="w-3 h-3 text-amber-400" />
+                    <span>Speed Caution: {selectedHistoricalIncident.speedRestrictionImposed}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Auditor Sign-off Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-slate-400 pt-1 border-t border-slate-800/80">
+                <span>
+                  Audited & Certified by: <strong className="text-sky-300">{selectedHistoricalIncident.auditedBy}</strong> ({selectedHistoricalIncident.auditorRole})
+                </span>
+                <span className="text-emerald-400 font-bold font-mono flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>{selectedHistoricalIncident.status}</span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Historical Incident Cards List */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {historicalIncidents.map((inc) => {
+              const isSelected = selectedHistoricalIncident?.id === inc.id;
+              const isNearFix = inc.distanceMetersFromFix <= 150;
+
+              return (
+                <div
+                  key={inc.id}
+                  id={`incident-item-${inc.id}`}
+                  onClick={() => {
+                    setSelectedHistoricalIncident(isSelected ? null : inc);
+                    railwayAudio.playBeep(isSelected ? 440 : 750, 0.04);
+                  }}
+                  className={`p-2.5 rounded-lg border transition-all cursor-pointer text-left space-y-1.5 ${
+                    isSelected
+                      ? 'bg-amber-950/40 border-amber-500 shadow-md shadow-amber-950/40'
+                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          inc.severity === 'CRITICAL'
+                            ? 'bg-rose-500 animate-pulse'
+                            : inc.severity === 'HIGH'
+                            ? 'bg-amber-500'
+                            : 'bg-sky-500'
+                        }`}
+                      />
+                      <span className="text-[10px] font-bold text-white font-mono">
+                        {inc.auditLogId}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-mono">
+                        {inc.dateFormatted.split(',')[0]}
+                      </span>
+                    </div>
+
+                    {/* Proximity Tag */}
+                    <span
+                      className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border ${
+                        isNearFix
+                          ? 'bg-emerald-950 text-emerald-300 border-emerald-600'
+                          : 'bg-slate-800 text-slate-300 border-slate-700'
+                      }`}
+                    >
+                      {inc.distanceMetersFromFix === 0
+                        ? 'Exact GPS Spot (0m)'
+                        : `${inc.distanceMetersFromFix}m from fix`}
+                    </span>
+                  </div>
+
+                  {/* Title & Post */}
+                  <div>
+                    <h5 className="text-[11px] font-semibold text-slate-200 line-clamp-1">
+                      {inc.issueType}
+                    </h5>
+                    <p className="text-[10px] text-slate-400 font-mono">
+                      Location: <span className="text-amber-300">{inc.chainagePost}</span> ({inc.department})
+                    </p>
+                  </div>
+
+                  {/* Action summary */}
+                  <p className="text-[10px] text-slate-400 line-clamp-1 border-t border-slate-900 pt-1">
+                    ↳ Remedy: {inc.maintenanceActionTaken}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

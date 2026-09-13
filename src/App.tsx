@@ -82,12 +82,27 @@ export default function App() {
 
   // Target Block or item for drilldowns (e.g. from Timeline or Search to Conflict)
   const [targetConflictBlockId, setTargetConflictBlockId] = useState<string | undefined>(undefined);
+  const [targetDefectId, setTargetDefectId] = useState<string | undefined>(undefined);
   const [targetResourceParams, setTargetResourceParams] = useState<{
     resourceType?: string;
     corridorId?: string;
     tab?: 'MACHINERY' | 'MANPOWER';
     shift?: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
   }>({});
+
+  // Deep linking for field staff QR scanning (?defectId=... or #defect=...)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const queryDefect = params.get('defectId');
+      const hashMatch = window.location.hash.match(/defect=([^&]+)/);
+      const detectedDefect = queryDefect || (hashMatch ? decodeURIComponent(hashMatch[1]) : undefined);
+      if (detectedDefect) {
+        setCurrentScreen('defects');
+        setTargetDefectId(detectedDefect);
+      }
+    }
+  }, []);
 
   // Domain Datasets State
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -457,6 +472,7 @@ export default function App() {
               corridors={corridors}
               defects={defects}
               onRefreshDefects={refreshAllData}
+              initialSelectedDefectId={targetDefectId}
             />
           )}
 

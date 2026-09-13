@@ -12,15 +12,17 @@ import {
   ExternalLink,
   ShieldAlert,
   Sparkles,
+  QrCode,
 } from 'lucide-react';
 import { Defect } from '../../types';
 
 interface DefectPhotoModalProps {
   defect: Defect | null;
   onClose: () => void;
+  onOpenQrProtocols?: (defect: Defect) => void;
 }
 
-export const DefectPhotoModal: React.FC<DefectPhotoModalProps> = ({ defect, onClose }) => {
+export const DefectPhotoModal: React.FC<DefectPhotoModalProps> = ({ defect, onClose, onOpenQrProtocols }) => {
   const [zoomLevel, setZoomLevel] = useState<number>(1);
 
   if (!defect || !defect.photoAttachment) return null;
@@ -94,6 +96,17 @@ export const DefectPhotoModal: React.FC<DefectPhotoModalProps> = ({ defect, onCl
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenQrProtocols && (
+              <button
+                id="btn-photo-view-qr-protocols"
+                onClick={() => onOpenQrProtocols(defect)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-950 hover:bg-sky-900 border border-sky-600 text-sky-200 text-xs font-mono font-bold transition-colors cursor-pointer"
+                title="View QR Placard and Safety Protocols"
+              >
+                <QrCode className="w-3.5 h-3.5 text-sky-400" />
+                <span>Field QR &amp; Safety</span>
+              </button>
+            )}
             <button
               id="btn-download-defect-photo"
               onClick={handleDownload}

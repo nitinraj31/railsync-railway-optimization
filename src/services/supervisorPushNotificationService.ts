@@ -450,6 +450,8 @@ export function simulateSupervisorPushAlert(corridorId = 'C004', section = 'KM 2
       longitude: 76.9298,
       altitudeMeters: 218,
       railwayChainageKm: 'KM 28/4 UP Track',
+      capturedAt: new Date().toISOString(),
+      source: 'GPS_DEVICE',
     },
   });
 }
