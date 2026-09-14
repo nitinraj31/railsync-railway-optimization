@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import {
   User,
   UserRole,
@@ -620,6 +621,9 @@ export default function App() {
         }}
         onOpenHotkeysModal={() => setHotkeysModalOpen(true)}
       />
+
+      {/* Vercel Web Analytics */}
+      <Analytics />
     </div>
   );
 }
