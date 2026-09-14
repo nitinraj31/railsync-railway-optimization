@@ -37,6 +37,8 @@ import {
   Clock,
   Zap,
   ArrowUpDown,
+  Flame,
+  TrendingUp,
 } from 'lucide-react';
 import {
   Defect,
@@ -60,7 +62,14 @@ import { DefectAiPhotoAnalysisCard } from '../common/DefectAiPhotoAnalysisCard';
 import { DefectInspectionReportModal } from '../modals/DefectInspectionReportModal';
 import { DefectQrCodeModal } from '../modals/DefectQrCodeModal';
 import { DefectPredictiveTimelineMap } from '../predictive/DefectPredictiveTimelineMap';
+import { DefectGeospatialClusterMap } from '../common/DefectGeospatialClusterMap';
 import { predictAssetCriticality } from '../../services/defectPredictiveCriticalityService';
+import {
+  calculatePredictiveRiskScore,
+  calculateBatchPredictiveRiskScores,
+  PredictiveRiskScoreResult,
+} from '../../services/predictiveRiskScoringService';
+import { PredictiveRiskScoreDetailModal } from '../modals/PredictiveRiskScoreDetailModal';
 import { analyzeDefectPhotoWithAi } from '../../services/defectVisionAiService';
 import { railwayAudio } from '../../services/railwayAudio';
 import { SupervisorPushAlertBanner } from '../common/SupervisorPushAlertBanner';
@@ -161,9 +170,20 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
   const [sortByAiUrgency, setSortByAiUrgency] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Screen View Mode: Active Defect Registry vs Predictive Maintenance Timeline Map
-  const [activeViewTab, setActiveViewTab] = useState<'REGISTRY' | 'PREDICTIVE_TIMELINE'>('REGISTRY');
+  // Predictive Risk Score & 30-Day Criticality Forecast States
+  const [selectedDefectForRiskScore, setSelectedDefectForRiskScore] = useState<PredictiveRiskScoreResult | null>(null);
+  const [filterForecastCritical30DaysOnly, setFilterForecastCritical30DaysOnly] = useState<boolean>(false);
+  const [sortByPredictiveRisk, setSortByPredictiveRisk] = useState<'NONE' | 'DESC' | 'ASC'>('NONE');
+
+  // Compute Predictive Risk Batch Metrics (Historical Asset Failure Rates + Corridor Age)
+  const predictiveRiskBatch = useMemo(() => {
+    return calculateBatchPredictiveRiskScores(defects, assets, corridors);
+  }, [defects, assets, corridors]);
+
+  // Screen View Mode: Active Defect Registry vs Network Geospatial Map vs Predictive Timeline Map
+  const [activeViewTab, setActiveViewTab] = useState<'REGISTRY' | 'GEOSPATIAL_MAP' | 'PREDICTIVE_TIMELINE'>('REGISTRY');
   const [selectedDefectForPredictiveTimeline, setSelectedDefectForPredictiveTimeline] = useState<string | undefined>(undefined);
+  const [filteredClusterDefectIds, setFilteredClusterDefectIds] = useState<string[] | null>(null);
 
   // Calculate count of assets projected to reach CRITICAL state within 7 days
   const criticalHorizonAssetsCount = useMemo(() => {
@@ -547,10 +567,21 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
 
   const filteredDefects = useMemo(() => {
     const list = defects.filter((d) => {
+      if (filteredClusterDefectIds && !filteredClusterDefectIds.includes(d.defectId)) {
+        return false;
+      }
       if (filterSeverity !== 'ALL' && d.severity !== filterSeverity) return false;
       if (filterDept !== 'ALL' && d.department !== filterDept) return false;
       if (filterGpsOnly && !d.geoCoordinates) return false;
       if (filterPhotosOnly && !d.photoAttachment) return false;
+
+      // 30-Day Criticality Forecast Filter: Isolates non-critical defects forecasted to become critical within 30 days
+      if (filterForecastCritical30DaysOnly) {
+        const risk = predictiveRiskBatch.scoresMap.get(d.defectId);
+        if (!risk || !risk.isLikelyCriticalWithin30Days || risk.isCurrentlyCritical) {
+          return false;
+        }
+      }
 
       // AI Maintenance Priority Level Filtering
       if (filterAiPriorities.length > 0) {
@@ -578,6 +609,18 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
       return true;
     });
 
+    // Sort by Predictive Risk Score (30-Day Criticality Horizon)
+    if (sortByPredictiveRisk !== 'NONE') {
+      return [...list].sort((a, b) => {
+        const scoreA = predictiveRiskBatch.scoresMap.get(a.defectId)?.predictiveRiskScore ?? 0;
+        const scoreB = predictiveRiskBatch.scoresMap.get(b.defectId)?.predictiveRiskScore ?? 0;
+        if (scoreB !== scoreA) {
+          return sortByPredictiveRisk === 'DESC' ? scoreB - scoreA : scoreA - scoreB;
+        }
+        return b.defectId.localeCompare(a.defectId);
+      });
+    }
+
     if (sortByAiUrgency) {
       const PRIORITY_ORDER: Record<PriorityLevel, number> = {
         CRITICAL: 4,
@@ -603,21 +646,39 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
     filterGpsOnly,
     filterPhotosOnly,
     filterAiPriorities,
+    filterForecastCritical30DaysOnly,
     searchQuery,
     sortByAiUrgency,
+    sortByPredictiveRisk,
+    predictiveRiskBatch,
+    filteredClusterDefectIds,
   ]);
 
   const activeFilterSummary = useMemo(() => {
     const parts: string[] = [];
+    if (filteredClusterDefectIds) parts.push(`Cluster Filter (${filteredClusterDefectIds.length} defects)`);
+    if (filterForecastCritical30DaysOnly) parts.push('Forecast: Critical in ≤30d (Non-Critical)');
     if (filterSeverity !== 'ALL') parts.push(`Severity: ${filterSeverity}`);
     if (filterDept !== 'ALL') parts.push(`Dept: ${filterDept}`);
     if (filterGpsOnly) parts.push('GPS Tagged Only');
     if (filterPhotosOnly) parts.push('Photo Evidence Only');
     if (filterAiPriorities.length > 0) parts.push(`AI Priority: ${filterAiPriorities.join('/')}`);
+    if (sortByPredictiveRisk !== 'NONE') parts.push(`Risk Score Sort (${sortByPredictiveRisk})`);
     if (sortByAiUrgency) parts.push('Sorted: Urgent First');
     if (searchQuery.trim()) parts.push(`Search: "${searchQuery.trim()}"`);
     return parts.length > 0 ? parts.join(' | ') : 'All Active Track Defects';
-  }, [filterSeverity, filterDept, filterGpsOnly, filterPhotosOnly, filterAiPriorities, sortByAiUrgency, searchQuery]);
+  }, [
+    filterSeverity,
+    filterDept,
+    filterGpsOnly,
+    filterPhotosOnly,
+    filterAiPriorities,
+    filterForecastCritical30DaysOnly,
+    sortByAiUrgency,
+    sortByPredictiveRisk,
+    searchQuery,
+    filteredClusterDefectIds,
+  ]);
 
   const geotaggedCount = defects.filter((d) => !!d.geoCoordinates).length;
   const photosCount = defects.filter((d) => !!d.photoAttachment).length;
@@ -680,6 +741,23 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              id="btn-switch-to-geospatial-cluster-map"
+              onClick={() => {
+                setActiveViewTab(activeViewTab === 'GEOSPATIAL_MAP' ? 'REGISTRY' : 'GEOSPATIAL_MAP');
+                railwayAudio.playBeep(750, 0.05);
+              }}
+              className={`text-xs font-mono px-2.5 py-1 rounded flex items-center gap-1.5 transition-all cursor-pointer shadow-sm border ${
+                activeViewTab === 'GEOSPATIAL_MAP'
+                  ? 'bg-rose-900 text-white border-rose-500 ring-1 ring-rose-400'
+                  : 'bg-rose-950/80 hover:bg-rose-900 text-rose-300 border-rose-700'
+              }`}
+              title="Open Geospatial Cluster Radar & Critical Defect Density Heatmap Layer"
+            >
+              <Flame className="w-3.5 h-3.5 text-rose-400" />
+              <span>CLUSTER HEATMAP</span>
+            </button>
             <button
               type="button"
               id="btn-switch-to-predictive-map"
@@ -934,9 +1012,9 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
         </div>
       )}
 
-      {/* Top View Mode Switcher: Active Defect Registry vs Predictive Criticality Timeline Map */}
+      {/* Top View Mode Switcher: Active Defect Registry vs Network Cluster & Critical Heatmap vs Predictive Timeline Map */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-2 bg-[#0a1122] rounded-xl border border-slate-800 shadow-md">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             id="btn-view-mode-registry"
@@ -954,6 +1032,28 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
             <span>Active Defect Registry &amp; Logging</span>
             <span className="px-1.5 py-0.2 rounded bg-slate-900/80 text-[10px] text-sky-200 border border-slate-700">
               {defects.length}
+            </span>
+          </button>
+
+          {/* GEOSPATIAL CLUSTER RADAR & CRITICAL HEATMAP TAB */}
+          <button
+            type="button"
+            id="btn-view-mode-geospatial-map"
+            onClick={() => {
+              setActiveViewTab('GEOSPATIAL_MAP');
+              railwayAudio.playBeep(750, 0.05);
+            }}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-mono text-xs font-bold transition-all cursor-pointer ${
+              activeViewTab === 'GEOSPATIAL_MAP'
+                ? 'bg-gradient-to-r from-rose-800 via-rose-700 to-sky-700 text-white shadow-md ring-1 ring-rose-500'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <Flame className="w-4 h-4 text-rose-400 animate-pulse" />
+            <span>Network Cluster Map &amp; Critical Heatmap</span>
+            <span className="px-2 py-0.5 rounded-full bg-rose-950 text-rose-200 border border-rose-600 text-[10px] font-bold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+              <span>{defects.filter((d) => d.severity === 'CRITICAL').length} Critical</span>
             </span>
           </button>
 
@@ -981,7 +1081,12 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
         </div>
 
         <div className="text-[11px] font-mono text-slate-400 hidden md:flex items-center gap-2">
-          {activeViewTab === 'PREDICTIVE_TIMELINE' ? (
+          {activeViewTab === 'GEOSPATIAL_MAP' ? (
+            <span className="text-rose-300 flex items-center gap-1.5">
+              <Flame className="w-3.5 h-3.5 text-rose-500 animate-bounce" />
+              <span>Geospatial Clustering &amp; Critical Density Heatmap Layer Active</span>
+            </span>
+          ) : activeViewTab === 'PREDICTIVE_TIMELINE' ? (
             <span className="text-amber-300 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
               <span>Historical Pattern Degradation Forecast • 30-Day Simulation &amp; Caution Orders</span>
@@ -1001,6 +1106,21 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
           onSelectDefect={(id) => setSelectedDefectForPredictiveTimeline(id)}
           onOpenDefectLocationModal={(d) => setSelectedDefectForLocation(d)}
           onScheduleBlockSuccess={() => onRefreshDefects()}
+        />
+      ) : activeViewTab === 'GEOSPATIAL_MAP' ? (
+        <DefectGeospatialClusterMap
+          defects={defects}
+          onSelectDefect={(id) => {
+            const found = defects.find((d) => d.defectId === id);
+            if (found) setSelectedDefectForLocation(found);
+          }}
+          onOpenDefectLocationModal={(d) => setSelectedDefectForLocation(d)}
+          onOpenDefectPhotoModal={(d) => setSelectedDefectForPhoto(d)}
+          onFilterRegistryByCluster={(defectIds) => {
+            setFilteredClusterDefectIds(defectIds);
+            setActiveViewTab('REGISTRY');
+            railwayAudio.playBeep(700, 0.05);
+          }}
         />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1651,6 +1771,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                   id="btn-sort-ai-urgency"
                   onClick={() => {
                     setSortByAiUrgency(!sortByAiUrgency);
+                    if (!sortByAiUrgency) setSortByPredictiveRisk('NONE');
                     railwayAudio.playBeep(800, 0.04);
                   }}
                   className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-mono font-semibold transition-all border cursor-pointer ${
@@ -1664,18 +1785,56 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                   <span>{sortByAiUrgency ? 'Urgent Sorted' : 'Sort Urgency'}</span>
                 </button>
 
-                {filterAiPriorities.length > 0 && (
+                {/* Sort by Predictive Risk Score */}
+                <button
+                  type="button"
+                  id="btn-sort-predictive-risk"
+                  onClick={() => {
+                    setSortByAiUrgency(false);
+                    setSortByPredictiveRisk((prev) => {
+                      if (prev === 'NONE') return 'DESC';
+                      if (prev === 'DESC') return 'ASC';
+                      return 'NONE';
+                    });
+                    railwayAudio.playBeep(850, 0.04);
+                  }}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-mono font-semibold transition-all border cursor-pointer ${
+                    sortByPredictiveRisk !== 'NONE'
+                      ? 'bg-amber-950/90 border-amber-500 text-amber-200 shadow-md ring-1 ring-amber-500/50'
+                      : 'bg-slate-900/80 border-slate-700 text-slate-400 hover:text-amber-300 hover:border-amber-800'
+                  }`}
+                  title="Sort defects by Predictive Risk Score (Historical Asset Failure Rates + Corridor Age 30-Day Forecast)"
+                >
+                  <TrendingUp className="w-3 h-3 text-amber-400" />
+                  <span>
+                    {sortByPredictiveRisk === 'DESC'
+                      ? 'Risk Score (High→Low)'
+                      : sortByPredictiveRisk === 'ASC'
+                      ? 'Risk Score (Low→High)'
+                      : 'Sort Risk Score'}
+                  </span>
+                  {sortByPredictiveRisk !== 'NONE' && (
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-900 font-mono font-bold text-white">
+                      {sortByPredictiveRisk}
+                    </span>
+                  )}
+                </button>
+
+                {(filterAiPriorities.length > 0 || filterForecastCritical30DaysOnly || sortByPredictiveRisk !== 'NONE' || sortByAiUrgency) && (
                   <button
                     type="button"
                     id="btn-reset-ai-priority-filter"
                     onClick={() => {
                       setFilterAiPriorities([]);
+                      setFilterForecastCritical30DaysOnly(false);
+                      setSortByPredictiveRisk('NONE');
+                      setSortByAiUrgency(false);
                       railwayAudio.playBeep(650, 0.04);
                     }}
                     className="text-[11px] font-mono text-rose-300 hover:text-rose-200 underline flex items-center gap-1 cursor-pointer transition-colors px-1"
                   >
                     <RotateCcw className="w-3 h-3" />
-                    <span>Reset</span>
+                    <span>Reset All</span>
                   </button>
                 )}
               </div>
@@ -1853,7 +2012,78 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                   {aiPriorityCounts.LOW}
                 </span>
               </button>
+
+              <div className="h-4 w-px bg-slate-800 mx-1 hidden sm:block" />
+
+              {/* 30-Day Criticality Forecast Quick Filter Button */}
+              <button
+                type="button"
+                id="btn-filter-forecast-30d"
+                onClick={() => {
+                  railwayAudio.playBeep(850, 0.04);
+                  setFilterForecastCritical30DaysOnly((prev) => !prev);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all border cursor-pointer flex items-center gap-1.5 ${
+                  filterForecastCritical30DaysOnly
+                    ? 'bg-gradient-to-r from-rose-950 via-amber-950 to-rose-900 text-rose-100 border-rose-500 ring-2 ring-rose-500/80 shadow-lg shadow-rose-950/70 font-bold'
+                    : 'bg-slate-900/90 text-amber-300/90 border-amber-800/60 hover:border-rose-600 hover:text-rose-200'
+                }`}
+                title="Forecast filter: isolates currently non-critical defects projected to become critical within 30 days based on asset failure rates and corridor age."
+              >
+                <Flame
+                  className={`w-3.5 h-3.5 ${
+                    filterForecastCritical30DaysOnly ? 'text-rose-400 animate-pulse' : 'text-amber-400'
+                  }`}
+                />
+                <span>Forecast: Critical in &le;30d</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold font-mono ${
+                    filterForecastCritical30DaysOnly
+                      ? 'bg-rose-800 text-white shadow-sm'
+                      : 'bg-amber-950 text-amber-300 border border-amber-700'
+                  }`}
+                >
+                  {predictiveRiskBatch.forecastedCriticalWithin30DaysCount}
+                </span>
+              </button>
             </div>
+
+            {/* 30-Day Criticality Horizon Active Banner */}
+            {filterForecastCritical30DaysOnly && (
+              <div className="mt-2.5 p-2.5 rounded-lg bg-gradient-to-r from-rose-950/90 via-amber-950/70 to-slate-950 border border-rose-600/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs font-mono shadow-md shadow-rose-950/60">
+                <div className="flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-rose-400 shrink-0 animate-bounce" />
+                  <div>
+                    <span className="font-bold text-rose-200">30-DAY CRITICALITY FORECAST ACTIVE: </span>
+                    <span className="text-slate-300">
+                      Displaying <strong>{filteredDefects.length} non-critical defect(s)</strong> calculated by asset failure rates &amp; corridor aging to cross statutory critical thresholds within 30 days ({predictiveRiskBatch.highestRiskCorridor.corridorName} is highest risk corridor).
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSortByPredictiveRisk('DESC');
+                      railwayAudio.playBeep(850, 0.04);
+                    }}
+                    className="px-2 py-1 rounded bg-rose-900/90 hover:bg-rose-800 text-white border border-rose-500 text-[10.5px] font-bold cursor-pointer"
+                  >
+                    Sort Highest Risk
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterForecastCritical30DaysOnly(false);
+                      railwayAudio.playBeep(600, 0.04);
+                    }}
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10.5px] cursor-pointer"
+                  >
+                    Clear Filter ✕
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Field Supervisor Urgent Focus Banner */}
             {filterAiPriorities.length > 0 &&
@@ -1892,6 +2122,40 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                   </div>
                 </div>
               )}
+
+            {/* Geographic Cluster Active Filter Banner */}
+            {filteredClusterDefectIds && (
+              <div className="mt-2.5 p-2 rounded-lg bg-sky-950/90 border border-sky-600 text-xs font-mono flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sky-200">
+                  <MapPin className="w-4 h-4 text-sky-400 shrink-0" />
+                  <span>
+                    <strong>Geographic Cluster Filter Active:</strong> Showing {filteredDefects.length} defect(s) filtered from map cluster selection.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveViewTab('GEOSPATIAL_MAP');
+                      railwayAudio.playBeep(700, 0.04);
+                    }}
+                    className="px-2.5 py-1 rounded bg-sky-900 hover:bg-sky-800 text-white text-[11px] font-bold cursor-pointer"
+                  >
+                    Return to Map Radar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilteredClusterDefectIds(null);
+                      railwayAudio.playBeep(600, 0.04);
+                    }}
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] cursor-pointer"
+                  >
+                    Clear Cluster Filter ✕
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-slate-800 max-h-[580px] overflow-y-auto">
@@ -1903,6 +2167,37 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                   <th className="py-2.5 px-3">Corridor</th>
                   <th className="py-2.5 px-3">Classification</th>
                   <th className="py-2.5 px-3">Logged Severity</th>
+                  {/* Predictive Risk Score Column Header */}
+                  <th className="py-2.5 px-3 text-amber-300">
+                    <button
+                      type="button"
+                      id="btn-col-sort-predictive-risk"
+                      onClick={() => {
+                        railwayAudio.playBeep(850, 0.04);
+                        setSortByAiUrgency(false);
+                        setSortByPredictiveRisk((prev) => {
+                          if (prev === 'NONE') return 'DESC';
+                          if (prev === 'DESC') return 'ASC';
+                          return 'NONE';
+                        });
+                      }}
+                      className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer group"
+                      title="Predictive Risk Score: Forecasted via Historical Failure Rates per Asset Type & Corridor Infrastructure Age (30-Day Criticality Horizon). Click to toggle Sort Desc/Asc."
+                    >
+                      <TrendingUp className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+                      <span>Predictive Risk Score</span>
+                      <ArrowUpDown
+                        className={`w-3 h-3 ${
+                          sortByPredictiveRisk !== 'NONE' ? 'text-amber-400 font-bold opacity-100' : 'opacity-50'
+                        }`}
+                      />
+                      {sortByPredictiveRisk !== 'NONE' && (
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950 border border-amber-600 text-amber-200">
+                          {sortByPredictiveRisk}
+                        </span>
+                      )}
+                    </button>
+                  </th>
                   <th className="py-2.5 px-3 text-rose-300">Predictive Criticality</th>
                   <th className="py-2.5 px-3">
                     <div className="flex items-center gap-1.5 text-indigo-300">
@@ -1955,6 +2250,90 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                         >
                           {d.severity}
                         </span>
+                      </td>
+
+                      {/* Predictive Risk Score (Historical Failure Rates & Corridor Age Forecast) */}
+                      <td className="py-2.5 px-3">
+                        {(() => {
+                          const riskRes =
+                            predictiveRiskBatch.scoresMap.get(d.defectId) ||
+                            calculatePredictiveRiskScore(d, assets, corridors);
+
+                          if (riskRes.isCurrentlyCritical) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  railwayAudio.playBeep(800, 0.04);
+                                  setSelectedDefectForRiskScore(riskRes);
+                                }}
+                                className="px-2 py-1 rounded bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 flex items-center gap-1.5 font-mono text-[10px] transition-all cursor-pointer"
+                                title="Defect is already active statutory CRITICAL. Click for full risk score and failure rates breakdown."
+                              >
+                                <span className="font-bold text-xs">{riskRes.predictiveRiskScore}</span>
+                                <span className="px-1 py-0.2 rounded bg-rose-900 text-white font-bold text-[8.5px]">
+                                  ACTIVE CRIT
+                                </span>
+                              </button>
+                            );
+                          }
+
+                          if (riskRes.isLikelyCriticalWithin30Days) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  railwayAudio.playBeep(880, 0.04);
+                                  setSelectedDefectForRiskScore(riskRes);
+                                }}
+                                className="px-2 py-1 rounded bg-rose-950/90 hover:bg-rose-900 border border-rose-600 text-rose-100 flex items-center gap-1.5 font-mono text-[10.5px] transition-all cursor-pointer shadow-sm shadow-rose-950/80 animate-pulse group"
+                                title={`⚡ HIGH PROBABILITY: Forecasted to cross critical threshold in ${riskRes.forecastedDaysUntilCritical.toFixed(1)} days (${riskRes.forecastedCriticalDate})!\nAsset Type: ${riskRes.assetType} (${riskRes.historicalAnnualFailureRatePercent}% annual failure rate)\nCorridor: ${riskRes.corridorId} (${riskRes.corridorAgeYears}y infrastructure age, ${riskRes.annualTonnageGMT} GMT)\nClick for full mathematical degradation forecast.`}
+                              >
+                                <Flame className="w-3.5 h-3.5 text-rose-400 group-hover:scale-125 transition-transform shrink-0" />
+                                <span className="font-bold text-xs">{riskRes.predictiveRiskScore}</span>
+                                <span className="px-1.5 py-0.2 rounded bg-rose-900 text-white font-bold text-[9px] border border-rose-600 whitespace-nowrap">
+                                  ⚡ CRIT IN {riskRes.forecastedDaysUntilCritical.toFixed(0)}d
+                                </span>
+                              </button>
+                            );
+                          }
+
+                          if (riskRes.riskTier === 'ELEVATED_30_60D') {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  railwayAudio.playBeep(750, 0.04);
+                                  setSelectedDefectForRiskScore(riskRes);
+                                }}
+                                className="px-2 py-1 rounded bg-amber-950/70 hover:bg-amber-900 border border-amber-700/80 text-amber-200 flex items-center gap-1.5 font-mono text-[10px] transition-all cursor-pointer"
+                                title={`Elevated risk: Forecasted to become critical in ${riskRes.forecastedDaysUntilCritical.toFixed(1)} days (${riskRes.forecastedCriticalDate})\nAsset failure rate: ${riskRes.historicalAnnualFailureRatePercent}%\nClick for breakdown.`}
+                              >
+                                <span className="font-bold text-xs">{riskRes.predictiveRiskScore}</span>
+                                <span className="px-1.5 py-0.2 rounded bg-amber-900/80 text-amber-100 font-bold text-[9px] border border-amber-700 whitespace-nowrap">
+                                  Elevated ({riskRes.forecastedDaysUntilCritical.toFixed(0)}d)
+                                </span>
+                              </button>
+                            );
+                          }
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                railwayAudio.playBeep(700, 0.04);
+                                setSelectedDefectForRiskScore(riskRes);
+                              }}
+                              className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 flex items-center gap-1.5 font-mono text-[10px] transition-all cursor-pointer"
+                              title={`Stable condition: ${riskRes.forecastedDaysUntilCritical.toFixed(1)} days until critical threshold\nCorridor age: ${riskRes.corridorAgeYears} yrs\nClick for breakdown.`}
+                            >
+                              <span className="font-bold text-xs text-slate-200">{riskRes.predictiveRiskScore}</span>
+                              <span className="px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800 text-[9px] whitespace-nowrap">
+                                Stable ({riskRes.forecastedDaysUntilCritical.toFixed(0)}d)
+                              </span>
+                            </button>
+                          );
+                        })()}
                       </td>
                       <td className="py-2.5 px-3">
                         {(() => {
@@ -2130,6 +2509,17 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
         allDefects={defects}
         activeFilterSummary={activeFilterSummary}
         inspectorName={reportedBy || currentUser?.name || 'Senior Section Engineer (P-Way / Safety)'}
+      />
+
+      {/* Predictive Risk Score & 30-Day Criticality Forecast Detail Modal */}
+      <PredictiveRiskScoreDetailModal
+        scoreResult={selectedDefectForRiskScore}
+        onClose={() => setSelectedDefectForRiskScore(null)}
+        onOpenPredictiveTimeline={(defectId) => {
+          setSelectedDefectForRiskScore(null);
+          setSelectedDefectForPredictiveTimeline(defectId);
+          setActiveViewTab('PREDICTIVE_TIMELINE');
+        }}
       />
     </div>
   );

@@ -882,16 +882,52 @@ export function generateInitialDefects(): Defect[] {
     const assetNum = 1 + (i % 28);
     const assetId = `A${assetNum.toString().padStart(3, '0')}`;
 
-    // Base coordinates for Delhi Division corridors
+    // Realistic corridor alignment and cluster anchors for Northern Railway Delhi Division
     const corridorBaseCoords: Record<string, [number, number]> = {
       C001: [28.6448, 77.2250], // NDLS - GZB
       C002: [28.6650, 77.2150], // DLI - PNP
       C003: [28.6920, 76.9210], // BGZ - ROK
       C004: [28.5830, 77.2450], // NZM - PWL
     };
-    const baseCoord = corridorBaseCoords[corr] || [28.6139, 77.2090];
-    const latOffset = (i * 0.0042) % 0.15;
-    const lngOffset = (i * 0.0068) % 0.18;
+
+    // Specific hot zones where railway defects cluster naturally
+    let clusterLat = 0;
+    let clusterLng = 0;
+    let chainageDisplay = `KM ${(12 + (i * 1.8)).toFixed(1)} Up Main`;
+
+    if (i === 1 || i === 5 || i === 9 || i === 21 || i === 33) {
+      // Hotspot Cluster 1 (Sahibabad Junction C001: KM 22-26) - 2 CRITICAL (i=1,5), 1 HIGH (i=9,21), 1 MEDIUM (i=33)
+      clusterLat = 28.6680 + ((i % 5) - 2) * 0.0035;
+      clusterLng = 77.3590 + ((i % 3) - 1) * 0.0042;
+      chainageDisplay = `KM ${(22.4 + (i % 4) * 0.8).toFixed(1)} Up Main (Sahibabad Jxn)`;
+    } else if (i === 2 || i === 6 || i === 14 || i === 26 || i === 38) {
+      // Hotspot Cluster 2 (Faridabad South C004: KM 30-34) - 2 CRITICAL (i=2,6), 1 HIGH (i=14,26), 1 MEDIUM (i=38)
+      clusterLat = 28.4110 + ((i % 5) - 2) * 0.0038;
+      clusterLng = 77.3150 + ((i % 3) - 1) * 0.0032;
+      chainageDisplay = `KM ${(30.2 + (i % 4) * 0.9).toFixed(1)} Dn Main (Faridabad)`;
+    } else if (i === 3 || i === 11 || i === 19 || i === 31) {
+      // Hotspot Cluster 3 (Sonipat Jxn C002: KM 42-45) - 1 CRITICAL (i=3), 2 HIGH (i=11,19), 1 MEDIUM (i=31)
+      clusterLat = 28.9890 + ((i % 4) - 1.5) * 0.0040;
+      clusterLng = 77.0210 + ((i % 3) - 1) * 0.0035;
+      chainageDisplay = `KM ${(43.1 + (i % 4) * 0.6).toFixed(1)} Up Line (Sonipat)`;
+    } else if (i === 4 || i === 16 || i === 24 || i === 40) {
+      // Hotspot Cluster 4 (Bahadurgarh Yard C003: KM 26-29) - 1 CRITICAL (i=4), 2 HIGH (i=16,24), 1 MEDIUM (i=40)
+      clusterLat = 28.6920 + ((i % 4) - 1.5) * 0.0036;
+      clusterLng = 76.9210 + ((i % 3) - 1) * 0.0038;
+      chainageDisplay = `KM ${(27.4 + (i % 4) * 0.7).toFixed(1)} Freight Bypass (Bahadurgarh)`;
+    } else if (i === 7 || i === 15 || i === 27 || i === 39) {
+      // Cluster 5 (Anand Vihar C001: KM 12-14) - 0 CRITICAL, 2 HIGH (i=7,15), 1 MEDIUM (i=27), 1 LOW (i=39)
+      clusterLat = 28.6498 + ((i % 4) - 1.5) * 0.0028;
+      clusterLng = 77.3160 + ((i % 3) - 1) * 0.0030;
+      chainageDisplay = `KM ${(13.2 + (i % 3) * 0.5).toFixed(1)} Terminal Approach (Anand Vihar)`;
+    } else {
+      // Realistic spread along the corridor line
+      const baseCoord = corridorBaseCoords[corr] || [28.6139, 77.2090];
+      const latOffset = (i * 0.0075) % 0.28;
+      const lngOffset = (i * 0.0092) % 0.32;
+      clusterLat = baseCoord[0] + latOffset;
+      clusterLng = baseCoord[1] + lngOffset;
+    }
 
     // Sample photographic evidence for railway defects
     let photoAttachment: any = undefined;
@@ -977,14 +1013,14 @@ export function generateInitialDefects(): Defect[] {
       reportedBy: i % 2 === 0 ? 'Track Inspection Patrol' : 'Traction Line Inspection Unit',
       status: i <= 5 ? 'PENDING_PRIORITY_ANALYSIS' : i <= 25 ? 'ANALYZED' : 'SCHEDULED',
       speedRestrictionKmph: sev === 'CRITICAL' ? 30 : sev === 'HIGH' ? 50 : undefined,
-      geoCoordinates: i % 2 === 0 ? {
-        latitude: Number((baseCoord[0] + latOffset).toFixed(6)),
-        longitude: Number((baseCoord[1] + lngOffset).toFixed(6)),
-        accuracyMeters: 2.5 + (i % 5),
+      geoCoordinates: {
+        latitude: Number(clusterLat.toFixed(6)),
+        longitude: Number(clusterLng.toFixed(6)),
+        accuracyMeters: 2.0 + (i % 4),
         capturedAt: `2026-09-0${1 + (i % 5)}T10:${(10 + i).toString().padStart(2, '0')}:00Z`,
         source: 'GPS_DEVICE',
-        railwayChainageKm: `KM ${(15 + (i * 2.3)).toFixed(1)} Up Main`,
-      } : undefined,
+        railwayChainageKm: chainageDisplay,
+      },
       photoAttachment,
       aiVisualAnalysis,
     });
