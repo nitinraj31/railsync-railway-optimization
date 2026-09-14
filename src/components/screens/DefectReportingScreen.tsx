@@ -39,6 +39,7 @@ import {
   ArrowUpDown,
   Flame,
   TrendingUp,
+  Activity,
 } from 'lucide-react';
 import {
   Defect,
@@ -79,6 +80,24 @@ import {
   subscribeToSupervisorAlerts,
   requestPushNotificationPermission,
 } from '../../services/supervisorPushNotificationService';
+
+// Asset-Type Filter Definition (Track, OHE, S&T)
+export type AssetTypeFilter = 'ALL' | 'TRACK' | 'OHE' | 'ST';
+
+export function matchesAssetType(defect: Defect, filter: AssetTypeFilter): boolean {
+  if (filter === 'ALL') return true;
+  const dept = (defect.department || '').toUpperCase();
+  if (filter === 'TRACK') {
+    return dept === 'ENGINEERING' || dept === 'TRACK' || dept === 'CIVIL' || dept === 'P-WAY';
+  }
+  if (filter === 'OHE') {
+    return dept === 'TRACTION' || dept === 'OHE' || dept === 'TRD' || dept === 'ELECTRICAL';
+  }
+  if (filter === 'ST') {
+    return dept === 'S&T' || dept === 'SIGNAL' || dept === 'TELECOM' || dept === 'ST';
+  }
+  return true;
+}
 
 interface DefectReportingScreenProps {
   currentUser: User | null;
@@ -161,7 +180,8 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
     };
   }, []);
 
-  // Table Filters
+  // Table & Dashboard Filters
+  const [assetTypeFilter, setAssetTypeFilter] = useState<AssetTypeFilter>('ALL');
   const [filterSeverity, setFilterSeverity] = useState<string>('ALL');
   const [filterDept, setFilterDept] = useState<string>('ALL');
   const [filterGpsOnly, setFilterGpsOnly] = useState(false);
@@ -169,6 +189,58 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
   const [filterAiPriorities, setFilterAiPriorities] = useState<PriorityLevel[]>([]);
   const [sortByAiUrgency, setSortByAiUrgency] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Handler for Asset-Type toggle with sound and dept synchronization
+  const handleAssetTypeFilterChange = useCallback((newFilter: AssetTypeFilter) => {
+    setAssetTypeFilter(newFilter);
+    if (newFilter === 'TRACK') setFilterDept('ENGINEERING');
+    else if (newFilter === 'OHE') setFilterDept('TRACTION');
+    else if (newFilter === 'ST') setFilterDept('S&T');
+    else setFilterDept('ALL');
+    railwayAudio.playBeep(750, 0.04);
+  }, []);
+
+  // Compute breakdown of defects by asset type group
+  const assetGroupCounts = useMemo(() => {
+    let track = 0;
+    let ohe = 0;
+    let st = 0;
+    let trackCrit = 0;
+    let oheCrit = 0;
+    let stCrit = 0;
+
+    for (const d of defects) {
+      const dept = (d.department || '').toUpperCase();
+      const isCrit = d.severity === 'CRITICAL';
+      if (dept === 'ENGINEERING' || dept === 'TRACK' || dept === 'CIVIL' || dept === 'P-WAY') {
+        track++;
+        if (isCrit) trackCrit++;
+      } else if (dept === 'TRACTION' || dept === 'OHE' || dept === 'TRD' || dept === 'ELECTRICAL') {
+        ohe++;
+        if (isCrit) oheCrit++;
+      } else if (dept === 'S&T' || dept === 'SIGNAL' || dept === 'TELECOM' || dept === 'ST') {
+        st++;
+        if (isCrit) stCrit++;
+      }
+    }
+
+    return {
+      ALL: defects.length,
+      ALL_CRIT: defects.filter((d) => d.severity === 'CRITICAL').length,
+      TRACK: track,
+      TRACK_CRIT: trackCrit,
+      OHE: ohe,
+      OHE_CRIT: oheCrit,
+      ST: st,
+      ST_CRIT: stCrit,
+    };
+  }, [defects]);
+
+  // Subset of defects isolated by Asset-Type for map markers and cluster recalculation
+  const assetTypeFilteredDefects = useMemo(() => {
+    if (assetTypeFilter === 'ALL') return defects;
+    return defects.filter((d) => matchesAssetType(d, assetTypeFilter));
+  }, [defects, assetTypeFilter]);
 
   // Predictive Risk Score & 30-Day Criticality Forecast States
   const [selectedDefectForRiskScore, setSelectedDefectForRiskScore] = useState<PredictiveRiskScoreResult | null>(null);
@@ -570,6 +642,10 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
       if (filteredClusterDefectIds && !filteredClusterDefectIds.includes(d.defectId)) {
         return false;
       }
+      // Asset-Type Isolation Filter: Track (P-Way), OHE (Traction), or S&T (Signaling)
+      if (assetTypeFilter !== 'ALL' && !matchesAssetType(d, assetTypeFilter)) {
+        return false;
+      }
       if (filterSeverity !== 'ALL' && d.severity !== filterSeverity) return false;
       if (filterDept !== 'ALL' && d.department !== filterDept) return false;
       if (filterGpsOnly && !d.geoCoordinates) return false;
@@ -641,6 +717,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
     return list;
   }, [
     defects,
+    assetTypeFilter,
     filterSeverity,
     filterDept,
     filterGpsOnly,
@@ -657,6 +734,11 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
   const activeFilterSummary = useMemo(() => {
     const parts: string[] = [];
     if (filteredClusterDefectIds) parts.push(`Cluster Filter (${filteredClusterDefectIds.length} defects)`);
+    if (assetTypeFilter !== 'ALL') {
+      const assetLabel =
+        assetTypeFilter === 'TRACK' ? 'Track (P-Way)' : assetTypeFilter === 'OHE' ? 'OHE (Traction)' : 'S&T (Signaling)';
+      parts.push(`Asset Group: ${assetLabel}`);
+    }
     if (filterForecastCritical30DaysOnly) parts.push('Forecast: Critical in ≤30d (Non-Critical)');
     if (filterSeverity !== 'ALL') parts.push(`Severity: ${filterSeverity}`);
     if (filterDept !== 'ALL') parts.push(`Dept: ${filterDept}`);
@@ -668,6 +750,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
     if (searchQuery.trim()) parts.push(`Search: "${searchQuery.trim()}"`);
     return parts.length > 0 ? parts.join(' | ') : 'All Active Track Defects';
   }, [
+    assetTypeFilter,
     filterSeverity,
     filterDept,
     filterGpsOnly,
@@ -1012,6 +1095,167 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
         </div>
       )}
 
+      {/* Top Asset-Type Filter Toggle Bar: Isolate Track, OHE, or S&T */}
+      <div className="p-3.5 bg-[#0a1122] rounded-xl border border-slate-800 shadow-md flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-700 text-sky-300 font-mono text-xs font-bold uppercase tracking-wider shadow-inner">
+            <Layers className="w-3.5 h-3.5 text-sky-400" />
+            <span>Asset-Type Filter</span>
+          </div>
+          <span className="text-[11.5px] text-slate-400 font-mono">
+            Isolate defects by railway asset group to immediately update map markers &amp; table view:
+          </span>
+        </div>
+
+        {/* Toggle Segmented Buttons */}
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-950/90 rounded-lg border border-slate-800 font-mono">
+          {/* ALL Assets */}
+          <button
+            type="button"
+            id="btn-asset-filter-all"
+            onClick={() => handleAssetTypeFilterChange('ALL')}
+            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              assetTypeFilter === 'ALL'
+                ? 'bg-sky-600 text-white shadow-md shadow-sky-950'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            }`}
+            title="Show all asset groups (Track, OHE, and S&T)"
+          >
+            <span>All Assets</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                assetTypeFilter === 'ALL' ? 'bg-sky-800 text-white font-bold' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {assetGroupCounts.ALL}
+            </span>
+          </button>
+
+          {/* Track (P-Way Engineering) */}
+          <button
+            type="button"
+            id="btn-asset-filter-track"
+            onClick={() => handleAssetTypeFilterChange(assetTypeFilter === 'TRACK' ? 'ALL' : 'TRACK')}
+            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-2 border ${
+              assetTypeFilter === 'TRACK'
+                ? 'bg-emerald-950 text-emerald-100 border-emerald-500 ring-2 ring-emerald-500/70 shadow-lg shadow-emerald-950/80'
+                : 'bg-slate-900/60 text-emerald-400/90 border-slate-800 hover:border-emerald-700/60 hover:text-emerald-300'
+            }`}
+            title="Isolate Track defects: Rails, Sleepers, Ballast, Turnouts, Fastenings, Civil formations"
+          >
+            <Activity className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Track</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                assetTypeFilter === 'TRACK'
+                  ? 'bg-emerald-800 text-white font-bold'
+                  : 'bg-emerald-950/70 text-emerald-300 border border-emerald-800/60'
+              }`}
+            >
+              {assetGroupCounts.TRACK}
+            </span>
+            {assetGroupCounts.TRACK_CRIT > 0 && (
+              <span
+                className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"
+                title={`${assetGroupCounts.TRACK_CRIT} Critical Track defects`}
+              />
+            )}
+          </button>
+
+          {/* OHE (Traction 25kV) */}
+          <button
+            type="button"
+            id="btn-asset-filter-ohe"
+            onClick={() => handleAssetTypeFilterChange(assetTypeFilter === 'OHE' ? 'ALL' : 'OHE')}
+            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-2 border ${
+              assetTypeFilter === 'OHE'
+                ? 'bg-amber-950 text-amber-100 border-amber-500 ring-2 ring-amber-500/70 shadow-lg shadow-amber-950/80'
+                : 'bg-slate-900/60 text-amber-400/90 border-slate-800 hover:border-amber-700/60 hover:text-amber-300'
+            }`}
+            title="Isolate OHE defects: 25kV Catenary, Contact Wires, Droppers, Cantilevers, Insulators, Mast structures"
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            <span>OHE</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                assetTypeFilter === 'OHE'
+                  ? 'bg-amber-800 text-white font-bold'
+                  : 'bg-amber-950/70 text-amber-300 border border-amber-800/60'
+              }`}
+            >
+              {assetGroupCounts.OHE}
+            </span>
+            {assetGroupCounts.OHE_CRIT > 0 && (
+              <span
+                className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"
+                title={`${assetGroupCounts.OHE_CRIT} Critical OHE defects`}
+              />
+            )}
+          </button>
+
+          {/* S&T (Signaling & Telecom) */}
+          <button
+            type="button"
+            id="btn-asset-filter-st"
+            onClick={() => handleAssetTypeFilterChange(assetTypeFilter === 'ST' ? 'ALL' : 'ST')}
+            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-2 border ${
+              assetTypeFilter === 'ST'
+                ? 'bg-cyan-950 text-cyan-100 border-cyan-500 ring-2 ring-cyan-500/70 shadow-lg shadow-cyan-950/80'
+                : 'bg-slate-900/60 text-cyan-400/90 border-slate-800 hover:border-cyan-700/60 hover:text-cyan-300'
+            }`}
+            title="Isolate S&T defects: Point Machines, Track Circuits, Axle Counters, Color Light Signals, Electronic Interlocking"
+          >
+            <Radio className="w-3.5 h-3.5 text-cyan-400" />
+            <span>S&amp;T</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                assetTypeFilter === 'ST'
+                  ? 'bg-cyan-800 text-white font-bold'
+                  : 'bg-cyan-950/70 text-cyan-300 border border-cyan-800/60'
+              }`}
+            >
+              {assetGroupCounts.ST}
+            </span>
+            {assetGroupCounts.ST_CRIT > 0 && (
+              <span
+                className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"
+                title={`${assetGroupCounts.ST_CRIT} Critical S&T defects`}
+              />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Active Asset-Type Isolation Banner */}
+      {assetTypeFilter !== 'ALL' && (
+        <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 shadow-md flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5 font-mono text-xs text-slate-200">
+            <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping" />
+            <span>
+              <strong className="text-sky-300 font-bold uppercase tracking-wider">
+                Asset Isolation Active:
+              </strong>{' '}
+              Showing only{' '}
+              <span className="text-white font-bold underline">
+                {assetTypeFilter === 'TRACK'
+                  ? 'Track (P-Way Engineering)'
+                  : assetTypeFilter === 'OHE'
+                  ? 'OHE (25kV Traction)'
+                  : 'S&T (Signaling & Telecom)'}
+              </span>{' '}
+              defects ({filteredDefects.length} of {defects.length} total). Geospatial radar map markers, clusters, and registry table are synchronized.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleAssetTypeFilterChange('ALL')}
+            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs font-bold border border-slate-700 transition-colors cursor-pointer"
+          >
+            Clear Asset Filter (Show All) ✕
+          </button>
+        </div>
+      )}
+
       {/* Top View Mode Switcher: Active Defect Registry vs Network Cluster & Critical Heatmap vs Predictive Timeline Map */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-2 bg-[#0a1122] rounded-xl border border-slate-800 shadow-md">
         <div className="flex flex-wrap items-center gap-2">
@@ -1031,7 +1275,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
             <FileText className="w-4 h-4" />
             <span>Active Defect Registry &amp; Logging</span>
             <span className="px-1.5 py-0.2 rounded bg-slate-900/80 text-[10px] text-sky-200 border border-slate-700">
-              {defects.length}
+              {assetTypeFilter === 'ALL' ? defects.length : `${filteredDefects.length} / ${defects.length}`}
             </span>
           </button>
 
@@ -1053,7 +1297,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
             <span>Network Cluster Map &amp; Critical Heatmap</span>
             <span className="px-2 py-0.5 rounded-full bg-rose-950 text-rose-200 border border-rose-600 text-[10px] font-bold flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
-              <span>{defects.filter((d) => d.severity === 'CRITICAL').length} Critical</span>
+              <span>{assetTypeFilteredDefects.filter((d) => d.severity === 'CRITICAL').length} Critical</span>
             </span>
           </button>
 
@@ -1101,7 +1345,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
 
       {activeViewTab === 'PREDICTIVE_TIMELINE' ? (
         <DefectPredictiveTimelineMap
-          defects={defects}
+          defects={assetTypeFilteredDefects}
           selectedDefectId={selectedDefectForPredictiveTimeline}
           onSelectDefect={(id) => setSelectedDefectForPredictiveTimeline(id)}
           onOpenDefectLocationModal={(d) => setSelectedDefectForLocation(d)}
@@ -1109,7 +1353,9 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
         />
       ) : activeViewTab === 'GEOSPATIAL_MAP' ? (
         <DefectGeospatialClusterMap
-          defects={defects}
+          defects={assetTypeFilteredDefects}
+          activeAssetTypeFilter={assetTypeFilter}
+          onAssetTypeFilterChange={(filter) => handleAssetTypeFilterChange(filter)}
           onSelectDefect={(id) => {
             const found = defects.find((d) => d.defectId === id);
             if (found) setSelectedDefectForLocation(found);
@@ -2231,7 +2477,23 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                       }`}
                     >
                       <td className="py-2.5 px-3 font-bold text-rose-300">{d.defectId}</td>
-                      <td className="py-2.5 px-3 text-slate-200 font-semibold">{d.assetId}</td>
+                      <td className="py-2.5 px-3 text-slate-200 font-semibold">
+                        <div className="flex items-center gap-1.5">
+                          <span>{d.assetId}</span>
+                          <span
+                            className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold uppercase border ${
+                              d.department === 'ENGINEERING'
+                                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-850'
+                                : d.department === 'TRACTION'
+                                ? 'bg-amber-950/80 text-amber-300 border-amber-850'
+                                : 'bg-cyan-950/80 text-cyan-300 border-cyan-850'
+                            }`}
+                            title={`Asset Group: ${d.department === 'ENGINEERING' ? 'Track (P-Way Civil)' : d.department === 'TRACTION' ? 'OHE (25kV Traction)' : 'S&T (Signaling & Telecom)'}`}
+                          >
+                            {d.department === 'ENGINEERING' ? 'Track' : d.department === 'TRACTION' ? 'OHE' : 'S&T'}
+                          </span>
+                        </div>
+                      </td>
                       <td className="py-2.5 px-3 text-slate-300">{d.corridorId}</td>
                       <td className="py-2.5 px-3 text-slate-300 truncate max-w-[170px]" title={d.defectType}>
                         {d.defectType}

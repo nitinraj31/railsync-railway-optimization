@@ -53,6 +53,7 @@ interface DispersionRay {
   toX: number;
   toY: number;
   isCrit: boolean;
+  type?: 'DISPERSE' | 'CONVERGE';
 }
 
 interface RecalculationShockwave {
@@ -75,6 +76,8 @@ interface DefectGeospatialClusterMapProps {
   onOpenDefectLocationModal?: (defect: Defect) => void;
   onOpenDefectPhotoModal?: (defect: Defect) => void;
   onFilterRegistryByCluster?: (defectIds: string[]) => void;
+  activeAssetTypeFilter?: 'ALL' | 'TRACK' | 'OHE' | 'ST';
+  onAssetTypeFilterChange?: (filter: 'ALL' | 'TRACK' | 'OHE' | 'ST') => void;
 }
 
 export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProps> = ({
@@ -83,6 +86,8 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
   onOpenDefectLocationModal,
   onOpenDefectPhotoModal,
   onFilterRegistryByCluster,
+  activeAssetTypeFilter = 'ALL',
+  onAssetTypeFilterChange,
 }) => {
   // SVG Canvas dimensions
   const SVG_WIDTH = 900;
@@ -119,7 +124,20 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
   const hudTimerRef = useRef<any>(null);
 
   // Filters
-  const [filterDept, setFilterDept] = useState<string>('ALL');
+  const [filterDept, setFilterDept] = useState<string>(() => {
+    if (activeAssetTypeFilter === 'TRACK') return 'ENGINEERING';
+    if (activeAssetTypeFilter === 'OHE') return 'TRACTION';
+    if (activeAssetTypeFilter === 'ST') return 'S&T';
+    return 'ALL';
+  });
+
+  // Sync with activeAssetTypeFilter prop from top dashboard toggle
+  useEffect(() => {
+    if (activeAssetTypeFilter === 'TRACK') setFilterDept('ENGINEERING');
+    else if (activeAssetTypeFilter === 'OHE') setFilterDept('TRACTION');
+    else if (activeAssetTypeFilter === 'ST') setFilterDept('S&T');
+    else setFilterDept('ALL');
+  }, [activeAssetTypeFilter]);
   const [filterSeverity, setFilterSeverity] = useState<string>('ALL');
   const [filterCorridor, setFilterCorridor] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -178,8 +196,8 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
     );
   }, [filteredDefects]);
 
-  // Record marker positions after each render cycle to serve as animation origins for next zoom
-  useEffect(() => {
+  // Cache current marker and cluster positions
+  const updateDefectPositionsCache = useCallback(() => {
     const newMap = new Map<
       string,
       { screenX: number; screenY: number; clusterScreenX?: number; clusterScreenY?: number }
@@ -203,98 +221,164 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
       }
     }
     prevDefectPosRef.current = newMap;
-    prevZoomRef.current = zoom;
-  }, [clusters, singleDefects, zoom, pan]);
+  }, [clusters, singleDefects]);
 
-  // Trigger dynamic visual dispersion and consolidation animations
-  const triggerRecalculationVisuals = useCallback(
-    (oldZoom: number, nextZoom: number) => {
-      const isZoomIn = nextZoom > oldZoom;
-      const isZoomOut = nextZoom < oldZoom;
+  // Initial mount cache
+  useEffect(() => {
+    if (prevDefectPosRef.current.size === 0 && (singleDefects.length > 0 || clusters.length > 0)) {
+      updateDefectPositionsCache();
+      prevZoomRef.current = zoom;
+    }
+  }, [singleDefects, clusters, zoom, updateDefectPositionsCache]);
 
-      if (Math.abs(nextZoom - oldZoom) < 0.04) return;
+  // Reactive Dynamic Cluster Recalculation & Spatial Dispersion/Consolidation Animation
+  useEffect(() => {
+    const oldZoom = prevZoomRef.current;
+    if (Math.abs(zoom - oldZoom) < 0.03) {
+      // Small adjustment or pan-only movement: keep position cache synchronized
+      updateDefectPositionsCache();
+      return;
+    }
 
-      setIsRecalculating(true);
+    const isZoomIn = zoom > oldZoom;
+    const prevMap = prevDefectPosRef.current;
 
-      if (isZoomIn) {
-        // Zoom in: defects separating out of clusters into individual pins
-        const rays: DispersionRay[] = [];
-        const prevMap = prevDefectPosRef.current;
+    setIsRecalculating(true);
 
-        for (const s of singleDefects) {
-          const d = s.defects[0];
-          if (!d) continue;
+    if (isZoomIn) {
+      // Zoom in: defects separating out of clusters into individual pins or sub-clusters
+      const rays: DispersionRay[] = [];
+
+      // 1. Single pins that emerged from a previous cluster
+      for (const s of singleDefects) {
+        const d = s.defects[0];
+        if (!d) continue;
+        const prev = prevMap.get(d.defectId);
+        if (prev && prev.clusterScreenX !== undefined && prev.clusterScreenY !== undefined) {
+          const dist = Math.hypot(s.screenX - prev.clusterScreenX, s.screenY - prev.clusterScreenY);
+          if (dist > 5) {
+            rays.push({
+              id: `ray-disperse-${d.defectId}-${Date.now()}-${Math.random()}`,
+              fromX: prev.clusterScreenX,
+              fromY: prev.clusterScreenY,
+              toX: s.screenX,
+              toY: s.screenY,
+              isCrit: d.severity === 'CRITICAL',
+              type: 'DISPERSE',
+            });
+          }
+        }
+      }
+
+      // 2. Clusters that split: check if cluster members came from an old cluster with a different center
+      for (const c of clusters) {
+        let sumOldX = 0;
+        let sumOldY = 0;
+        let count = 0;
+        for (const d of c.defects) {
           const prev = prevMap.get(d.defectId);
           if (prev && prev.clusterScreenX !== undefined && prev.clusterScreenY !== undefined) {
-            const dist = Math.hypot(s.screenX - prev.clusterScreenX, s.screenY - prev.clusterScreenY);
-            if (dist > 8) {
+            sumOldX += prev.clusterScreenX;
+            sumOldY += prev.clusterScreenY;
+            count++;
+          }
+        }
+        if (count > 0) {
+          const avgOldX = sumOldX / count;
+          const avgOldY = sumOldY / count;
+          const dist = Math.hypot(c.screenX - avgOldX, c.screenY - avgOldY);
+          if (dist > 10) {
+            rays.push({
+              id: `ray-cluster-split-${c.id}-${Date.now()}-${Math.random()}`,
+              fromX: avgOldX,
+              fromY: avgOldY,
+              toX: c.screenX,
+              toY: c.screenY,
+              isCrit: c.criticalCount > 0,
+              type: 'DISPERSE',
+            });
+          }
+        }
+      }
+
+      setRecalculationHUD({
+        message: 'Dynamic Cluster Recalculation (Zoom In)',
+        submessage: `Splitting into higher resolution flaw pins (${clusterRadiusKm.toFixed(1)} km aggregation threshold)`,
+        type: 'SPLIT',
+      });
+
+      setDispersionRays(rays.slice(0, 32));
+
+      // Spatial audio feedback (ascending tone)
+      railwayAudio.playBeep(640, 0.03);
+      setTimeout(() => railwayAudio.playBeep(880, 0.04), 45);
+    } else {
+      // Zoom out: defects consolidating into sector clusters
+      const shockwaves: RecalculationShockwave[] = [];
+      const rays: DispersionRay[] = [];
+
+      for (const c of clusters) {
+        shockwaves.push({
+          id: `wave-${c.id}-${Date.now()}`,
+          x: c.screenX,
+          y: c.screenY,
+          maxRadius: Math.min(75, 22 + c.totalCount * 3.8),
+          hasCritical: c.criticalCount > 0,
+        });
+
+        // Convergence rays from previous pin/subcluster positions into this newly formed cluster
+        for (const d of c.defects) {
+          const prev = prevMap.get(d.defectId);
+          if (prev) {
+            const dist = Math.hypot(c.screenX - prev.screenX, c.screenY - prev.screenY);
+            if (dist > 6) {
               rays.push({
-                id: `ray-${d.defectId}-${Date.now()}`,
-                fromX: prev.clusterScreenX,
-                fromY: prev.clusterScreenY,
-                toX: s.screenX,
-                toY: s.screenY,
+                id: `ray-converge-${d.defectId}-${Date.now()}-${Math.random()}`,
+                fromX: prev.screenX,
+                fromY: prev.screenY,
+                toX: c.screenX,
+                toY: c.screenY,
                 isCrit: d.severity === 'CRITICAL',
+                type: 'CONVERGE',
               });
             }
           }
         }
-
-        setRecalculationHUD({
-          message: 'Dynamic Cluster Recalculation (Zoom In)',
-          submessage: `Splitting into higher resolution flaw pins (${clusterRadiusKm.toFixed(1)} km aggregation threshold)`,
-          type: 'SPLIT',
-        });
-
-        setDispersionRays(rays.slice(0, 24));
-
-        // Spatial audio feedback
-        railwayAudio.playBeep(640, 0.03);
-        setTimeout(() => railwayAudio.playBeep(840, 0.04), 45);
-      } else if (isZoomOut) {
-        // Zoom out: defects consolidating into sector clusters
-        const shockwaves: RecalculationShockwave[] = [];
-        for (const c of clusters) {
-          shockwaves.push({
-            id: `wave-${c.id}-${Date.now()}`,
-            x: c.screenX,
-            y: c.screenY,
-            maxRadius: Math.min(65, 20 + c.totalCount * 3.5),
-            hasCritical: c.criticalCount > 0,
-          });
-        }
-
-        setRecalculationHUD({
-          message: 'Dynamic Cluster Consolidation (Zoom Out)',
-          submessage: `Consolidating flaws into sector clusters (${clusterRadiusKm.toFixed(1)} km aggregation threshold)`,
-          type: 'MERGE',
-        });
-
-        setRecalculationShockwaves(shockwaves);
-
-        // Spatial audio feedback
-        railwayAudio.playBeep(840, 0.03);
-        setTimeout(() => railwayAudio.playBeep(640, 0.04), 45);
       }
 
-      if (recalcTimerRef.current) clearTimeout(recalcTimerRef.current);
-      recalcTimerRef.current = setTimeout(() => {
-        setDispersionRays([]);
-        setRecalculationShockwaves([]);
-        setIsRecalculating(false);
-      }, 950);
+      setRecalculationHUD({
+        message: 'Dynamic Cluster Consolidation (Zoom Out)',
+        submessage: `Consolidating flaws into sector clusters (${clusterRadiusKm.toFixed(1)} km aggregation threshold)`,
+        type: 'MERGE',
+      });
 
-      if (hudTimerRef.current) clearTimeout(hudTimerRef.current);
-      hudTimerRef.current = setTimeout(() => {
-        setRecalculationHUD(null);
-      }, 2800);
-    },
-    [singleDefects, clusters, clusterRadiusKm]
-  );
+      setRecalculationShockwaves(shockwaves);
+      setDispersionRays(rays.slice(0, 32));
+
+      // Spatial audio feedback (descending tone)
+      railwayAudio.playBeep(880, 0.03);
+      setTimeout(() => railwayAudio.playBeep(640, 0.04), 45);
+    }
+
+    // Refresh position cache for next cycle
+    updateDefectPositionsCache();
+    prevZoomRef.current = zoom;
+
+    if (recalcTimerRef.current) clearTimeout(recalcTimerRef.current);
+    recalcTimerRef.current = setTimeout(() => {
+      setDispersionRays([]);
+      setRecalculationShockwaves([]);
+      setIsRecalculating(false);
+    }, 1000);
+
+    if (hudTimerRef.current) clearTimeout(hudTimerRef.current);
+    hudTimerRef.current = setTimeout(() => {
+      setRecalculationHUD(null);
+    }, 2800);
+  }, [zoom, clusters, singleDefects, clusterRadiusKm, updateDefectPositionsCache]);
 
   // Reset zoom & pan to default
   const handleResetView = () => {
-    triggerRecalculationVisuals(zoom, 1.0);
     setZoom(1.0);
     setPan({ x: 0, y: 0 });
     setSelectedCluster(null);
@@ -305,28 +389,24 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
   // Zoom to specific point
   const handleZoomIn = () => {
     const next = Math.min(3.5, Math.round((zoom + 0.35) * 100) / 100);
-    triggerRecalculationVisuals(zoom, next);
     setZoom(next);
   };
 
   const handleZoomOut = () => {
     const next = Math.max(0.8, Math.round((zoom - 0.35) * 100) / 100);
-    triggerRecalculationVisuals(zoom, next);
     setZoom(next);
   };
 
   // Preset zoom levels to easily observe cluster transition dynamics
   const handleSetZoomPreset = (targetZoom: number) => {
     if (Math.abs(targetZoom - zoom) > 0.05) {
-      triggerRecalculationVisuals(zoom, targetZoom);
       setZoom(targetZoom);
     }
   };
 
   // Replay/pulse cluster recalculation
   const handleReplayRecalculation = () => {
-    const testNext = zoom >= 2.0 ? Math.max(0.9, zoom - 0.5) : Math.min(3.2, zoom + 0.5);
-    triggerRecalculationVisuals(zoom, testNext);
+    const testNext = zoom >= 2.0 ? Math.max(0.9, Math.round((zoom - 0.5) * 10) / 10) : Math.min(3.2, Math.round((zoom + 0.5) * 10) / 10);
     setZoom(testNext);
   };
 
@@ -335,9 +415,6 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
     setSelectedCluster(cluster);
     setSelectedZone(null);
     const targetZoom = Math.max(2.2, zoom);
-    if (targetZoom !== zoom) {
-      triggerRecalculationVisuals(zoom, targetZoom);
-    }
     // Center cluster on screen
     const { minLat, maxLat, minLng, maxLng } = RAILWAY_NETWORK_BOUNDS;
     const paddingX = 40;
@@ -422,7 +499,6 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
     const zoomFactor = e.deltaY < 0 ? 1.18 : 0.84;
     const nextZoom = Math.min(3.5, Math.max(0.8, Math.round(zoom * zoomFactor * 100) / 100));
     if (Math.abs(nextZoom - zoom) > 0.04) {
-      triggerRecalculationVisuals(zoom, nextZoom);
       setZoom(nextZoom);
     }
   };
@@ -581,8 +657,15 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
               id="select-map-dept-filter"
               value={filterDept}
               onChange={(e) => {
-                setFilterDept(e.target.value);
+                const val = e.target.value;
+                setFilterDept(val);
                 railwayAudio.playBeep(600, 0.03);
+                if (onAssetTypeFilterChange) {
+                  if (val === 'ENGINEERING') onAssetTypeFilterChange('TRACK');
+                  else if (val === 'TRACTION') onAssetTypeFilterChange('OHE');
+                  else if (val === 'S&T') onAssetTypeFilterChange('ST');
+                  else onAssetTypeFilterChange('ALL');
+                }
               }}
               className="bg-transparent text-xs text-sky-300 font-bold focus:outline-none cursor-pointer"
             >
