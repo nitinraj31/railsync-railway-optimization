@@ -37,6 +37,7 @@ interface DefectInspectionReportModalProps {
   allDefects: Defect[];
   activeFilterSummary?: string;
   inspectorName?: string;
+  reportTitle?: string;
 }
 
 export const DefectInspectionReportModal: React.FC<DefectInspectionReportModalProps> = ({
@@ -46,6 +47,7 @@ export const DefectInspectionReportModal: React.FC<DefectInspectionReportModalPr
   allDefects,
   activeFilterSummary = 'Active Filtered Registry',
   inspectorName = 'Senior Section Engineer (P-Way / Safety)',
+  reportTitle = 'PERMANENT WAY & INFRASTRUCTURE MAINTENANCE INSPECTION REPORT',
 }) => {
   // Option: report on filtered subset or all defects
   const [scope, setScope] = useState<'FILTERED' | 'ALL'>('FILTERED');
@@ -76,7 +78,7 @@ export const DefectInspectionReportModal: React.FC<DefectInspectionReportModalPr
       railwayAudio.playBeep(880, 0.06);
       const filename = downloadDefectInspectionPdf({
         defects: selectedDefects,
-        reportTitle: 'PERMANENT WAY & INFRASTRUCTURE MAINTENANCE INSPECTION REPORT',
+        reportTitle,
         division: 'DELHI DIVISION (NR)',
         zone: 'NORTHERN RAILWAY',
         inspectedBy: inspectorName,
@@ -95,7 +97,7 @@ export const DefectInspectionReportModal: React.FC<DefectInspectionReportModalPr
     railwayAudio.playBeep(750, 0.05);
     printDefectInspectionReport({
       defects: selectedDefects,
-      reportTitle: 'PERMANENT WAY & INFRASTRUCTURE MAINTENANCE INSPECTION REPORT',
+      reportTitle,
       division: 'DELHI DIVISION (NR)',
       zone: 'NORTHERN RAILWAY',
       inspectedBy: inspectorName,
@@ -107,7 +109,7 @@ export const DefectInspectionReportModal: React.FC<DefectInspectionReportModalPr
     railwayAudio.playBeep(700, 0.04);
     const html = generateDefectInspectionHtml({
       defects: selectedDefects,
-      reportTitle: 'PERMANENT WAY & INFRASTRUCTURE MAINTENANCE INSPECTION REPORT',
+      reportTitle,
       division: 'DELHI DIVISION (NR)',
       zone: 'NORTHERN RAILWAY',
       inspectedBy: inspectorName,

@@ -450,6 +450,7 @@ export default function App() {
               blocks={blocks}
               requests={requests}
               defects={defects}
+              assets={assets}
               onRefreshData={refreshAllData}
             />
           )}

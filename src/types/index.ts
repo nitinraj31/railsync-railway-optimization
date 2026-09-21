@@ -273,6 +273,46 @@ export interface ProposedTimeShift {
   trainPunctualityImpact: string;
 }
 
+export interface AiScheduleOffsetProposal {
+  conflictId: string;
+  blockId: string;
+  corridorId: string;
+  taskType?: string;
+  department?: DepartmentType;
+  priority?: PriorityLevel;
+  currentInterval: string;
+  proposedInterval: string;
+  offsetMinutes: number;
+  offsetDirection: 'FORWARD' | 'BACKWARD' | 'EXACT';
+  durationMinutes: number;
+  corridorWindowIdentified: string;
+  safetyHeadwayMinutes: number;
+  disruptionLevel: 'ZERO_DISRUPTION' | 'MINIMAL_REGULATION' | 'MODERATE';
+  confidenceScore: number;
+  justification: string;
+  irStandardsCompliance: string;
+  conflictingTrainNumber: string;
+  conflictingTrainName: string;
+  trainCategory?: string;
+  applied?: boolean;
+}
+
+export interface AiCorridorAvailabilitySummary {
+  corridorId: string;
+  corridorName: string;
+  utilization: number;
+  availableSlots: number;
+  trafficLullWindows: string[];
+}
+
+export interface AiOffsetResponse {
+  model: string;
+  generatedAt: string;
+  overallAssessment: string;
+  proposals: AiScheduleOffsetProposal[];
+  corridorSummaries?: AiCorridorAvailabilitySummary[];
+}
+
 export interface DependencyConflictDetails {
   conflictId: string;
   corridorId: string;
@@ -951,6 +991,152 @@ export interface SupervisorPushAlert {
   deliveryChannels: ('WEB_PUSH' | 'VHF_RADIO' | 'RAIL_CUG_SMS' | 'IN_APP_BROADCAST')[];
   deliveryStatus: 'PUSHED_TO_ALL' | 'PARTIAL_DELIVERY' | 'ACKNOWLEDGED';
   browserPushDelivered: boolean;
+}
+
+// ====================================================
+// MAINTENANCE RESOURCE FORECAST & 30-DAY PREDICTIVE TYPES
+// ====================================================
+
+export type ForecastScenarioType =
+  | 'BASELINE'
+  | 'MONSOON_MOISTURE'
+  | 'FREIGHT_SURGE'
+  | 'THERMAL_EXPANSION';
+
+export type ForecastHorizonDays = 7 | 14 | 30;
+
+export interface DailyForecastPoint {
+  dayNumber: number; // 1 to 30
+  date: string; // e.g. "2026-09-21"
+  displayDate: string; // e.g. "Sep 21"
+  dayOfWeek: string; // e.g. "Mon"
+  
+  // Aggregate Headcount & Machines
+  manpowerRequired: number;
+  manpowerAvailable: number;
+  manpowerDeficit: number;
+  
+  machinerySlotsRequired: number;
+  machinerySlotsAvailable: number;
+  machineryDeficit: number;
+
+  // Breakdown by Trade
+  trackmenRequired: number;
+  signalTechsRequired: number;
+  oheLinesmenRequired: number;
+  safetyLookoutsRequired: number;
+
+  // Breakdown by Machinery Class
+  tampersRequired: number;
+  ballastRegulatorsRequired: number;
+  stabilizersRequired: number;
+  towerWagonsRequired: number;
+  usfdCarsRequired: number;
+  specialMachinesRequired: number;
+
+  // Driver Intelligence
+  primaryDefectDriver: string;
+  primaryAgingDriver: string;
+  targetCorridorId: string;
+  riskLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+  recommendedAction: string;
+  corridorDemand: Record<string, { manpower: number; machinery: number; blocksCount: number }>;
+}
+
+export interface AgingAssetLifecycleForecast {
+  assetId: string;
+  assetName: string;
+  corridorId: string;
+  department: DepartmentType;
+  installationYear: number;
+  assetAgeYears: number;
+  cumulativeGmt: number;
+  gmtThreshold: number;
+  fatigueWearPercentage: number;
+  lifecyclePhase: 'EARLY_LIFE' | 'MID_LIFE' | 'NEAR_RENEWAL' | 'OVERDUE_CYCLE';
+  predictedMaintenanceDueDay: number;
+  predictedDueDate: string;
+  mandatedWorkType: string;
+  requiredMachinery: string;
+  requiredGangTrade: string;
+  estimatedBlockDurationHours: number;
+  irManualReference: string;
+}
+
+export interface RecurringDefectPatternForecast {
+  patternId: string;
+  patternTitle: string;
+  category: string;
+  department: DepartmentType;
+  affectedCorridors: string[];
+  recurrenceCycleDays: number;
+  predictedOccurrencesNext30Days: number;
+  cumulativeManpowerHours: number;
+  cumulativeMachineryHours: number;
+  keyMachineryNeeded: string;
+  degradationVelocity: 'ACCELERATING' | 'LINEAR' | 'STABLE';
+  primaryHazardIfUnaddressed: string;
+}
+
+export interface CorridorForecastSummary {
+  corridorId: string;
+  corridorName: string;
+  shortCode: string;
+  totalManpowerHours30d: number;
+  totalMachineHours30d: number;
+  peakManpowerDeficit: number;
+  peakMachineDeficit: number;
+  criticalBlockCount: number;
+  stressIndex: number; // 0 - 100
+  dominantFailureRisk: string;
+}
+
+export interface MachineryRequirementSummary {
+  machineType: MachineryType | 'BALLAST_CLEANER' | 'RAIL_GRINDER';
+  title: string;
+  totalHoursRequired30d: number;
+  currentInventoryCount: number;
+  peakConcurrentUnitsRequired: number;
+  utilizationRatePct: number;
+  shortageRisk: 'ADEQUATE' | 'TIGHT_BUFFER' | 'CRITICAL_SHORTAGE';
+  depotMobilizationAdvice: string;
+}
+
+export interface ManpowerRequirementSummary {
+  trade: 'TRACK_MAINTENANCE' | 'SIGNAL_TELECOM' | 'TRACTION_OHE' | 'SAFETY_LOOKOUT';
+  title: string;
+  totalGangShifts30d: number;
+  totalPersonnelHeadcountAvg: number;
+  availableHeadcount: number;
+  peakDeficit: number;
+  status: 'SUFFICIENT' | 'RESERVE_MOBILIZATION' | 'OVERTIME_ALERT';
+}
+
+export interface MaintenanceResourceForecastResult {
+  forecastId: string;
+  generatedAt: string;
+  scenario: ForecastScenarioType;
+  horizonDays: ForecastHorizonDays;
+  selectedCorridor: string;
+  totalManpowerShiftsNeeded: number;
+  totalMachineryHoursNeeded: number;
+  manpowerDeficitHotspotDays: number;
+  machineryDeficitHotspotDays: number;
+  defectDrivenPercentage: number;
+  agingInfrastructurePercentage: number;
+  dailyForecast: DailyForecastPoint[];
+  agingAssets: AgingAssetLifecycleForecast[];
+  defectPatterns: RecurringDefectPatternForecast[];
+  corridorSummaries: CorridorForecastSummary[];
+  machinerySummaries: MachineryRequirementSummary[];
+  manpowerSummaries: ManpowerRequirementSummary[];
+  aiStrategicBriefing?: {
+    executiveSummary: string;
+    strategicPriorities: string[];
+    fleetRebalancingPlan: string;
+    irRegulationsReference: string;
+    model: string;
+  };
 }
 
 

@@ -16,6 +16,7 @@ import {
 import { Conflict } from '../../types';
 import { DependencyReconciliationModal } from './DependencyReconciliationModal';
 import { resolveDependencyConflict, resetDependencyConflict } from '../../services/api';
+import { scheduleAutoSaveService } from '../../services/scheduleAutoSaveService';
 
 interface DependencyConflictBannerProps {
   conflicts: Conflict[];
@@ -52,6 +53,17 @@ export const DependencyConflictBanner: React.FC<DependencyConflictBannerProps> =
     setIsQuickApplying(true);
     try {
       await resolveDependencyConflict(dependencyConflict.conflictId, bestShift);
+      scheduleAutoSaveService.registerScheduleChange({
+        blockId: bestShift.targetBlockId,
+        corridorId: dependencyConflict.corridorId,
+        department: 'ELECTRICAL',
+        section: 'OHE Sector 4A (25kV AC)',
+        fieldModified: 'SCHEDULE_SLOT',
+        oldValue: bestShift.currentSlot,
+        newValue: bestShift.proposedSlot,
+        changeDescription: `Reconciled dependency conflict: ${bestShift.targetBlockTitle} shifted to ${bestShift.proposedSlot} (+${bestShift.safetyBufferMinutes}m safety buffer).`,
+        impactSummary: `Corridor ${dependencyConflict.corridorId} | Inter-departmental safety clearance established`,
+      });
       onRefreshConflicts();
     } catch (err) {
       console.error('Quick reconcile failed:', err);

@@ -267,6 +267,15 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
 
   // PDF Maintenance Inspection Report state
   const [isPdfReportModalOpen, setIsPdfReportModalOpen] = useState(false);
+  const [pdfReportCustomDefects, setPdfReportCustomDefects] = useState<Defect[] | null>(null);
+  const [pdfReportCustomTitle, setPdfReportCustomTitle] = useState<string | null>(null);
+
+  const handleOpenPdfReport = (customDefects?: Defect[], customTitle?: string) => {
+    setPdfReportCustomDefects(customDefects || null);
+    setPdfReportCustomTitle(customTitle || null);
+    setIsPdfReportModalOpen(true);
+    railwayAudio.playBeep(840, 0.05);
+  };
 
   // Field QR Code & Safety Protocols state
   const [selectedDefectForQr, setSelectedDefectForQr] = useState<Defect | null>(null);
@@ -1366,6 +1375,9 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
             setFilteredClusterDefectIds(defectIds);
             setActiveViewTab('REGISTRY');
             railwayAudio.playBeep(700, 0.05);
+          }}
+          onOpenPdfReportModal={(customDefects, customTitle) => {
+            handleOpenPdfReport(customDefects, customTitle);
           }}
         />
       ) : (
@@ -2766,10 +2778,19 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
       {/* PDF Maintenance Inspection Report Modal */}
       <DefectInspectionReportModal
         isOpen={isPdfReportModalOpen}
-        onClose={() => setIsPdfReportModalOpen(false)}
-        filteredDefects={filteredDefects}
+        onClose={() => {
+          setIsPdfReportModalOpen(false);
+          setPdfReportCustomDefects(null);
+          setPdfReportCustomTitle(null);
+        }}
+        filteredDefects={pdfReportCustomDefects || filteredDefects}
         allDefects={defects}
-        activeFilterSummary={activeFilterSummary}
+        activeFilterSummary={
+          pdfReportCustomTitle
+            ? `${pdfReportCustomTitle} (Asset Filter: ${assetTypeFilter})`
+            : activeFilterSummary
+        }
+        reportTitle={pdfReportCustomTitle || undefined}
         inspectorName={reportedBy || currentUser?.name || 'Senior Section Engineer (P-Way / Safety)'}
       />
 

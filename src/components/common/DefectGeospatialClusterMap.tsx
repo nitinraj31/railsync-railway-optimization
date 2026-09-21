@@ -30,6 +30,7 @@ import {
   ChevronRight,
   ShieldCheck,
   AlertOctagon,
+  Download,
 } from 'lucide-react';
 import { Defect, DepartmentType, PriorityLevel } from '../../types';
 import {
@@ -44,6 +45,7 @@ import {
   findNearestStation,
 } from '../../services/defectGeospatialService';
 import { railwayAudio } from '../../services/railwayAudio';
+import { downloadDefectInspectionPdf } from '../../services/defectInspectionReportPdfService';
 
 // Dynamic cluster recalculation animation models
 interface DispersionRay {
@@ -78,6 +80,7 @@ interface DefectGeospatialClusterMapProps {
   onFilterRegistryByCluster?: (defectIds: string[]) => void;
   activeAssetTypeFilter?: 'ALL' | 'TRACK' | 'OHE' | 'ST';
   onAssetTypeFilterChange?: (filter: 'ALL' | 'TRACK' | 'OHE' | 'ST') => void;
+  onOpenPdfReportModal?: (defectsToExport?: Defect[], reportTitle?: string) => void;
 }
 
 export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProps> = ({
@@ -88,6 +91,7 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
   onFilterRegistryByCluster,
   activeAssetTypeFilter = 'ALL',
   onAssetTypeFilterChange,
+  onOpenPdfReportModal,
 }) => {
   // SVG Canvas dimensions
   const SVG_WIDTH = 900;
@@ -146,6 +150,31 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
   const [hoveredCluster, setHoveredCluster] = useState<DefectGeographicCluster | null>(null);
   const [selectedCluster, setSelectedCluster] = useState<DefectGeographicCluster | null>(null);
   const [selectedZone, setSelectedZone] = useState<HighRiskMaintenanceZone | null>(null);
+
+  // PDF Export state & notification
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [pdfSuccessBanner, setPdfSuccessBanner] = useState<string | null>(null);
+
+  const handleQuickExportPdf = (defectsToExport: Defect[], title?: string) => {
+    try {
+      setIsExportingPdf(true);
+      railwayAudio.playBeep(880, 0.05);
+      const filename = downloadDefectInspectionPdf({
+        defects: defectsToExport,
+        reportTitle: title || 'GEOSPATIAL CORRIDOR & DEFECT CLUSTER INSPECTION DOSSIER',
+        division: 'DELHI DIVISION (NR)',
+        zone: 'NORTHERN RAILWAY',
+        inspectedBy: 'Senior Section Engineer (P-Way / Safety)',
+        filterSummary: `Geospatial Cluster View | ${defectsToExport.length} Defects | Asset Filter: ${activeAssetTypeFilter}`,
+      });
+      setPdfSuccessBanner(`Exported ${filename} successfully!`);
+      setTimeout(() => setPdfSuccessBanner(null), 4000);
+    } catch (e) {
+      console.error('Failed to export PDF:', e);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   // Mouse cursor geodetic coordinates HUD
   const [cursorGeo, setCursorGeo] = useState<{ lat: number; lng: number } | null>(null);
@@ -571,8 +600,53 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
             <span className="text-[9px] text-sky-400 uppercase font-bold block">Clusters</span>
             <span className="text-base font-bold text-sky-300 font-mono">{clusters.length}</span>
           </div>
+
+          <div className="w-px h-7 bg-slate-800" />
+
+          {/* Export to PDF Action Button */}
+          <div className="pl-1">
+            <button
+              type="button"
+              id="btn-map-export-pdf"
+              onClick={() => {
+                if (onOpenPdfReportModal) {
+                  onOpenPdfReportModal(filteredDefects, `GEOSPATIAL NETWORK DEFECT INSPECTION DOSSIER (${filteredDefects.length} DEFECTS)`);
+                } else {
+                  handleQuickExportPdf(filteredDefects, `GEOSPATIAL NETWORK DEFECT INSPECTION DOSSIER`);
+                }
+              }}
+              disabled={isExportingPdf}
+              className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-amber-950/60 disabled:opacity-50"
+              title="Export visible geospatial defect inspection dossier to official PDF"
+            >
+              <FileText className="w-3.5 h-3.5 text-slate-950" />
+              <span>{isExportingPdf ? 'Exporting PDF...' : 'EXPORT TO PDF'}</span>
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* PDF Export Success Notification Toast */}
+      {pdfSuccessBanner && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          className="flex items-center justify-between px-4 py-2 bg-emerald-950/90 border border-emerald-500 rounded-xl text-xs font-mono text-emerald-200 shadow-lg"
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <span className="font-bold">{pdfSuccessBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPdfSuccessBanner(null)}
+            className="text-emerald-400 hover:text-white"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </motion.div>
+      )}
 
       {/* =========================================================================
           MAP CONTROLS TOOLBAR: Heatmap, Clustering, Filters & Search
@@ -1184,7 +1258,7 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
                   />
                 ))}
 
-                {/* Laser/Spoke Dispersion Rays on Zoom-In Recalculation */}
+                {/* Laser/Spoke Dispersion & Convergence Rays on Zoom Recalculation */}
                 {dispersionRays.map((ray) => (
                   <g key={ray.id}>
                     <motion.line
@@ -1192,20 +1266,29 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
                       y1={ray.fromY}
                       x2={ray.toX}
                       y2={ray.toY}
-                      stroke={ray.isCrit ? '#ef4444' : '#38bdf8'}
+                      stroke={ray.isCrit ? '#ef4444' : ray.type === 'CONVERGE' ? '#0284c7' : '#38bdf8'}
                       strokeWidth={ray.isCrit ? 2.2 : 1.6}
-                      strokeDasharray="4,4"
+                      strokeDasharray={ray.type === 'CONVERGE' ? '3,3' : '4,4'}
                       initial={{ pathLength: 0, opacity: 0.95 }}
                       animate={{ pathLength: 1, opacity: [0.95, 0.7, 0] }}
                       transition={{ duration: 0.85, ease: 'easeOut' }}
                     />
+                    {/* Animated Photon / Tracer Dot moving along trajectory */}
+                    <motion.circle
+                      r={ray.isCrit ? 3.5 : 2.5}
+                      fill={ray.isCrit ? '#ef4444' : ray.type === 'CONVERGE' ? '#38bdf8' : '#7dd3fc'}
+                      initial={{ cx: ray.fromX, cy: ray.fromY, opacity: 0.95 }}
+                      animate={{ cx: ray.toX, cy: ray.toY, opacity: [0.95, 0.9, 0] }}
+                      transition={{ duration: 0.85, ease: 'easeOut' }}
+                    />
+                    {/* Origin burst */}
                     <motion.circle
                       cx={ray.fromX}
                       cy={ray.fromY}
                       fill="none"
                       stroke={ray.isCrit ? '#ef4444' : '#38bdf8'}
                       initial={{ r: 4, opacity: 0.9, strokeWidth: 2 }}
-                      animate={{ r: 24, opacity: 0, strokeWidth: 0.5 }}
+                      animate={{ r: 20, opacity: 0, strokeWidth: 0.5 }}
                       transition={{ duration: 0.75, ease: 'easeOut' }}
                     />
                   </g>
@@ -1388,6 +1471,24 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
                           opacity="0.25"
                         />
                       </>
+                    )}
+
+                    {/* Dynamic Catchment Perimeter Halo during Zoom Recalculation */}
+                    {isRecalculating && (
+                      <motion.circle
+                        cx="0"
+                        cy="0"
+                        fill="none"
+                        stroke={hasCritical ? '#ef4444' : '#38bdf8'}
+                        strokeWidth="1.2"
+                        strokeDasharray="4 4"
+                        initial={{ r: bubbleRadius * 0.8, opacity: 0.8 }}
+                        animate={{
+                          r: [bubbleRadius * 0.8, bubbleRadius + 16, bubbleRadius + 8],
+                          opacity: [0.8, 0.4, 0],
+                        }}
+                        transition={{ duration: 0.95, ease: 'easeOut' }}
+                      />
                     )}
 
                     {/* Main Cluster Circle with smooth spring radius & styling */}
@@ -1710,10 +1811,34 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
                   type="button"
                   id="btn-cluster-zoom-expand"
                   onClick={() => handleFocusCluster(selectedCluster)}
-                  className="flex-1 px-2.5 py-1.5 rounded-lg bg-sky-950 hover:bg-sky-900 border border-sky-600 text-sky-200 text-xs font-bold font-mono flex items-center justify-center gap-1 transition-all cursor-pointer"
+                  className="flex-1 min-w-[110px] px-2.5 py-1.5 rounded-lg bg-sky-950 hover:bg-sky-900 border border-sky-600 text-sky-200 text-xs font-bold font-mono flex items-center justify-center gap-1 transition-all cursor-pointer"
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
                   <span>Zoom &amp; Center</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="btn-cluster-export-pdf"
+                  onClick={() => {
+                    if (onOpenPdfReportModal) {
+                      onOpenPdfReportModal(
+                        selectedCluster.defects,
+                        `GEOSPATIAL CLUSTER ${selectedCluster.id} DEFECT DOSSIER (${selectedCluster.totalCount} DEFECTS)`
+                      );
+                    } else {
+                      handleQuickExportPdf(
+                        selectedCluster.defects,
+                        `GEOSPATIAL CLUSTER ${selectedCluster.id} DEFECT DOSSIER (${selectedCluster.totalCount} DEFECTS)`
+                      );
+                    }
+                  }}
+                  disabled={isExportingPdf}
+                  className="flex-1 min-w-[120px] px-2.5 py-1.5 rounded-lg bg-amber-950/70 hover:bg-amber-900/90 border border-amber-500/80 text-amber-200 text-xs font-mono font-bold flex items-center justify-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                  title="Export this cluster defects directly to PDF"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Cluster PDF</span>
                 </button>
 
                 {onFilterRegistryByCluster && (
@@ -1725,7 +1850,7 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
                       onFilterRegistryByCluster(ids);
                       railwayAudio.playBeep(750, 0.04);
                     }}
-                    className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-mono flex items-center justify-center gap-1 transition-all cursor-pointer"
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-mono flex items-center justify-center gap-1 transition-all cursor-pointer"
                     title="Filter main defect table by these defects"
                   >
                     <FileText className="w-3.5 h-3.5 text-amber-400" />
@@ -1860,6 +1985,33 @@ export const DefectGeospatialClusterMap: React.FC<DefectGeospatialClusterMapProp
                           Block: {zone.recommendedBlockHours}h Window
                         </span>
                       </div>
+
+                      {/* Export Zone PDF Button when active */}
+                      {selectedZone?.id === zone.id && (
+                        <div className="mt-2.5 pt-2 border-t border-rose-900/60 flex items-center justify-end">
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onOpenPdfReportModal) {
+                                onOpenPdfReportModal(
+                                  zone.defects,
+                                  `HIGH-RISK ZONE ${zone.zoneCode} MAINTENANCE DOSSIER (${zone.criticalDefectsCount} CRITICAL FLAWS)`
+                                );
+                              } else {
+                                handleQuickExportPdf(
+                                  zone.defects,
+                                  `HIGH-RISK ZONE ${zone.zoneCode} MAINTENANCE DOSSIER (${zone.criticalDefectsCount} CRITICAL FLAWS)`
+                                );
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-rose-900/80 hover:bg-rose-800 border border-rose-600 text-[10.5px] font-mono text-white font-bold transition-all shadow-sm"
+                            title="Export this high risk zone inspection report to PDF"
+                          >
+                            <Download className="w-3 h-3 text-rose-300" />
+                            <span>Export Zone PDF</span>
+                          </span>
+                        </div>
+                      )}
                     </button>
                   ))}
 

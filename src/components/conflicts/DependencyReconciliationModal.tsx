@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Conflict, ProposedTimeShift } from '../../types';
 import { resolveDependencyConflict, resetDependencyConflict } from '../../services/api';
+import { scheduleAutoSaveService } from '../../services/scheduleAutoSaveService';
 
 interface DependencyReconciliationModalProps {
   conflict: Conflict;
@@ -52,6 +53,17 @@ export const DependencyReconciliationModal: React.FC<DependencyReconciliationMod
     setIsApplying(true);
     try {
       await resolveDependencyConflict(conflict.conflictId, selectedShift);
+      scheduleAutoSaveService.registerScheduleChange({
+        blockId: selectedShift.targetBlockId,
+        corridorId: conflict.corridorId,
+        department: 'ELECTRICAL',
+        section: 'OHE Sector 4A (25kV AC)',
+        fieldModified: 'SCHEDULE_SLOT',
+        oldValue: selectedShift.currentSlot,
+        newValue: selectedShift.proposedSlot,
+        changeDescription: `Dependency conflict reconciled: ${selectedShift.targetBlockTitle} shifted from ${selectedShift.currentSlot} to ${selectedShift.proposedSlot} (+${selectedShift.safetyBufferMinutes}m safety buffer).`,
+        impactSummary: `Corridor ${conflict.corridorId} | Inter-departmental safety clearance established`,
+      });
       setReconciledResult(selectedShift);
       setIsSuccess(true);
       onResolved();

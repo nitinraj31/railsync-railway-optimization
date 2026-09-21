@@ -35,6 +35,8 @@ import {
   Leaf,
   Truck,
   CloudRain,
+  Map,
+  LocateFixed,
 } from 'lucide-react';
 import {
   BarChart,
@@ -54,8 +56,9 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
-import { ValidationResult, Corridor, OptimizedBlock, BlockRequest, Defect } from '../../types';
+import { ValidationResult, Corridor, OptimizedBlock, BlockRequest, Defect, Asset } from '../../types';
 import { mockStore } from '../../services/api';
+import { CommandCenterMapPreview } from '../common/CommandCenterMapPreview';
 import { PredictiveMaintenancePanel } from '../predictive/PredictiveMaintenancePanel';
 import { SustainabilityDashboard } from '../sustainability/SustainabilityDashboard';
 import { CorridorDigitalTwin } from '../digitaltwin/CorridorDigitalTwin';
@@ -65,6 +68,9 @@ import { ElectricalGridHealth } from '../electrical/ElectricalGridHealth';
 import { DepartmentOperationsHub } from '../departments/DepartmentOperationsHub';
 import { EnvironmentalImpactModule } from '../environmental/EnvironmentalImpactModule';
 import { DependencyConflictBanner } from '../conflicts/DependencyConflictBanner';
+import { ScheduleAutoSaveNotification } from '../schedule/ScheduleAutoSaveNotification';
+import { QuickBlockRescheduleModal } from '../schedule/QuickBlockRescheduleModal';
+import { scheduleAutoSaveService } from '../../services/scheduleAutoSaveService';
 
 interface CommandCenterProps {
   onNavigate: (screen: string, itemData?: any) => void;
@@ -78,6 +84,7 @@ interface CommandCenterProps {
   blocks?: OptimizedBlock[];
   requests?: BlockRequest[];
   defects?: Defect[];
+  assets?: Asset[];
   onRefreshData?: () => void;
 }
 
@@ -93,6 +100,7 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
   blocks = [],
   requests = mockStore.getBlockRequests(),
   defects = mockStore.getDefects(),
+  assets = mockStore.getAssets(),
   onRefreshData,
 }) => {
   const isSafe = validation.status === 'SAFE_TO_PUBLISH';
@@ -103,6 +111,9 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
   const [riskSeverityFilter, setRiskSeverityFilter] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
   const [riskSearchQuery, setRiskSearchQuery] = useState<string>('');
   const [selectedRiskBlockId, setSelectedRiskBlockId] = useState<string | null>(null);
+  const [mapFocusTarget, setMapFocusTarget] = useState<{ type: 'BLOCK' | 'ASSET' | 'DEFECT'; id: string } | null>(null);
+  const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState<boolean>(false);
+  const [rescheduleBlockId, setRescheduleBlockId] = useState<string | null>(null);
 
   // Dynamic Maintenance Efficiency calculations
   const corridorEfficiencyData = corridors.map((c) => {
@@ -620,6 +631,21 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
+            id="jump-to-network-map-btn"
+            onClick={() => {
+              const el = document.getElementById('network-map-preview-module');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-sky-950 via-slate-900 to-indigo-950 hover:border-sky-400/80 border border-sky-500/50 text-sky-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-950/60 transition-all font-mono group cursor-pointer"
+            title="Jump to Interactive Railway Corridor Geospatial Map Preview"
+          >
+            <Map className="w-4 h-4 text-sky-400 group-hover:animate-pulse" />
+            <span>Network Map</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-sky-500/20 text-sky-200 border border-sky-400/40 uppercase font-bold">
+              GIS Live
+            </span>
+          </button>
+          <button
             id="open-shadow-block-btn"
             onClick={() => onNavigate('shadow_block')}
             className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-cyan-950 via-slate-900 to-blue-950 hover:border-cyan-400/80 border border-cyan-500/50 text-cyan-300 text-xs font-semibold flex items-center gap-2 shadow-md shadow-cyan-950/60 transition-all font-mono group"
@@ -798,6 +824,9 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
         })}
       </div>
 
+      {/* AUTO-SAVE NOTIFICATION (FLASHES ON BLOCKING SCHEDULE CHANGES & PROMPTS COMMIT) */}
+      <ScheduleAutoSaveNotification onCommitSuccess={onRefreshData} />
+
       {/* DEPENDENCY CONFLICT NOTIFICATION & RECONCILIATION BANNER */}
       <DependencyConflictBanner
         conflicts={mockStore.getConflicts()}
@@ -880,6 +909,17 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
               </button>
             )}
             <button
+              onClick={() => {
+                setRescheduleBlockId(null);
+                setIsRescheduleModalOpen(true);
+              }}
+              className="px-3 py-2 rounded-lg bg-amber-950/80 hover:bg-amber-900 text-amber-200 text-xs font-medium border border-amber-700/60 flex items-center gap-1.5 transition-colors shadow-sm"
+              title="Reschedule blocking window (triggers draft auto-save and prompts backend commit)"
+            >
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+              <span>Adjust Schedule</span>
+            </button>
+            <button
               onClick={() => onNavigate('timeline')}
               className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700"
             >
@@ -888,6 +928,19 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
           </div>
         </div>
       </div>
+
+      {/* INTERACTIVE GEOSPATIAL NETWORK MAP PREVIEW (CORRIDORS, ACTIVE BLOCKS, DEFECTS & ASSET LAYERS) */}
+      <CommandCenterMapPreview
+        corridors={corridors}
+        blocks={blocks}
+        defects={defects}
+        assets={assets}
+        onNavigate={onNavigate}
+        focusedTarget={mapFocusTarget}
+        onSelectTarget={(target) => {
+          setMapFocusTarget({ type: target.type as any, id: target.id });
+        }}
+      />
 
       {/* NETWORK RESILIENCE & HEALTH MONITOR CARD */}
       <NetworkResilienceCard
@@ -1976,7 +2029,7 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
                                 <p className="text-xs text-emerald-200">
                                   {pred.recommendedAction}
                                 </p>
-                                <div className="pt-2 flex items-center gap-2">
+                                <div className="pt-2 flex items-center gap-2 flex-wrap">
                                   <button
                                     onClick={() => onNavigate('planning')}
                                     className="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold text-[10px] transition-colors"
@@ -1988,6 +2041,46 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
                                     className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] transition-colors"
                                   >
                                     Conflict Matrix
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setMapFocusTarget({ type: 'BLOCK', id: pred.blockId });
+                                      const el =
+                                        document.getElementById('mapview-sidebar-directory') ||
+                                        document.getElementById('btn-toggle-map-sidebar');
+                                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                                    }}
+                                    className="px-2 py-1 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-200 border border-amber-700/60 font-bold text-[10px] flex items-center gap-1 transition-colors"
+                                    title="Auto-zoom and center onto this block on the geospatial map"
+                                  >
+                                    <LocateFixed className="w-3 h-3 text-amber-400" />
+                                    <span>Center on Map</span>
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setRescheduleBlockId(pred.blockId);
+                                      setIsRescheduleModalOpen(true);
+                                    }}
+                                    className="px-2 py-1 rounded bg-sky-950/80 hover:bg-sky-900 text-sky-200 border border-sky-700/60 font-bold text-[10px] flex items-center gap-1 transition-colors"
+                                    title="Reschedule this block's operational window (auto-saves draft)"
+                                  >
+                                    <Clock className="w-3 h-3 text-sky-400" />
+                                    <span>Reschedule Window</span>
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      scheduleAutoSaveService.shiftBlockTime(
+                                        pred.blockId,
+                                        pred.projectedOverrunMinutes || 15,
+                                        `Safety buffer applied to mitigate ${pred.primaryRiskFactor}`
+                                      );
+                                      onRefreshData?.();
+                                    }}
+                                    className="px-2 py-1 rounded bg-amber-950/90 hover:bg-amber-900 text-amber-200 border border-amber-600/70 font-bold text-[10px] flex items-center gap-1 transition-colors"
+                                    title="Apply buffer to block schedule (auto-saves and prompts backend commit)"
+                                  >
+                                    <Zap className="w-3 h-3 text-amber-400" />
+                                    <span>+{pred.projectedOverrunMinutes || 15}m Buffer</span>
                                   </button>
                                 </div>
                               </div>
@@ -2240,6 +2333,20 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
           </div>
         </div>
       </div>
+
+      {/* QUICK BLOCK RESCHEDULE MODAL */}
+      <QuickBlockRescheduleModal
+        isOpen={isRescheduleModalOpen}
+        onClose={() => {
+          setIsRescheduleModalOpen(false);
+          setRescheduleBlockId(null);
+        }}
+        blocks={blocks}
+        initialBlockId={rescheduleBlockId}
+        onScheduleUpdated={() => {
+          onRefreshData?.();
+        }}
+      />
     </div>
   );
 };

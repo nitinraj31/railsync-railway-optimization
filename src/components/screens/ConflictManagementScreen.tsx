@@ -52,6 +52,8 @@ import { DrmAuditReportModal } from '../modals/DrmAuditReportModal';
 import { PwiDispatchModal } from '../modals/PwiDispatchModal';
 import { DependencyConflictBanner } from '../conflicts/DependencyConflictBanner';
 import { DependencyReconciliationModal } from '../conflicts/DependencyReconciliationModal';
+import { AiConflictAssistModal } from '../modals/AiConflictAssistModal';
+import { INITIAL_CORRIDORS } from '../../data/mockData';
 
 interface ConflictManagementScreenProps {
   conflicts: Conflict[];
@@ -116,6 +118,15 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
   // Dependency Conflict Reconciliation state
   const [selectedDependencyConflict, setSelectedDependencyConflict] = useState<Conflict | null>(null);
   const [isDependencyModalOpen, setIsDependencyModalOpen] = useState(false);
+
+  // Gemini AI Assist Corridor Schedule Offset state
+  const [isAiAssistModalOpen, setIsAiAssistModalOpen] = useState(false);
+  const [aiAssistSelectedConflictId, setAiAssistSelectedConflictId] = useState<string | null>(null);
+
+  const handleOpenAiAssist = (conflictId?: string) => {
+    setAiAssistSelectedConflictId(conflictId || null);
+    setIsAiAssistModalOpen(true);
+  };
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -504,6 +515,21 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap">
+            {/* AI Assist Button calling Gemini engine for schedule offsets */}
+            <button
+              id="btn-conflict-ai-assist"
+              data-testid="btn-conflict-ai-assist"
+              onClick={() => handleOpenAiAssist()}
+              className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-indigo-800 via-purple-800 to-sky-800 hover:from-indigo-700 hover:via-purple-700 hover:to-sky-700 border border-indigo-400/60 text-white text-xs font-mono font-bold flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-950/60 transition-all hover:scale-[1.02]"
+              title="Call Gemini engine to propose specific maintenance schedule offsets to resolve conflicting block requests based on corridor availability"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+              <span>AI Assist</span>
+              <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-black/40 text-indigo-200 border border-indigo-300/40">
+                Gemini
+              </span>
+            </button>
+
             <button
               id="btn-drm-safety-audit"
               data-testid="btn-drm-safety-audit"
@@ -1612,6 +1638,17 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
 
             <div className="flex items-center gap-2 flex-wrap">
               <button
+                id="btn-batch-ai-assist"
+                data-testid="btn-batch-ai-assist"
+                onClick={() => handleOpenAiAssist(selectedConflictIds[0])}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-700 via-purple-700 to-sky-700 hover:from-indigo-600 hover:to-sky-600 text-white font-bold text-xs font-mono flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-950/50 transition-all"
+                title="Use Gemini AI to propose schedule offsets for selected conflicts"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                <span>AI Assist Offsets</span>
+              </button>
+
+              <button
                 id="btn-batch-resolve"
                 data-testid="btn-batch-resolve"
                 onClick={handleBatchResolveSelected}
@@ -1737,6 +1774,17 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
                       </td>
                       <td className="py-3 px-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {/* Gemini AI Assist Quick Button */}
+                          <button
+                            id={`btn-ai-assist-${c.conflictId.toLowerCase()}`}
+                            data-testid={`btn-ai-assist-${c.conflictId.toLowerCase()}`}
+                            onClick={() => handleOpenAiAssist(c.conflictId)}
+                            title="Call Gemini AI to propose schedule offsets for this conflict based on corridor availability"
+                            className="p-1.5 rounded-lg bg-indigo-950 hover:bg-indigo-900 border border-indigo-700/80 text-indigo-300 cursor-pointer transition-colors shadow-xs"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                          </button>
+
                           {/* What-If Simulator Quick Button */}
                           <button
                             id={`btn-what-if-${c.conflictId.toLowerCase()}`}
@@ -2103,6 +2151,21 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
           }}
         />
       )}
+
+      {/* GEMINI AI CONFLICT ASSIST SCHEDULE OFFSET MODAL */}
+      <AiConflictAssistModal
+        isOpen={isAiAssistModalOpen}
+        onClose={() => {
+          setIsAiAssistModalOpen(false);
+          setAiAssistSelectedConflictId(null);
+        }}
+        conflicts={conflicts}
+        corridors={INITIAL_CORRIDORS}
+        initialSelectedConflictId={aiAssistSelectedConflictId}
+        onApplied={() => {
+          onRefreshConflicts();
+        }}
+      />
     </div>
   );
 };
