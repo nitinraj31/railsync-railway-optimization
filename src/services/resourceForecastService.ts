@@ -16,7 +16,7 @@ import {
   INITIAL_CORRIDORS,
   INITIAL_MACHINERY_RESOURCES,
   INITIAL_MANPOWER_GANGS,
-  INITIAL_DEFECTS,
+  generateInitialDefects,
 } from '../data/mockData';
 import { HISTORICAL_DEFECT_CLUSTERS } from './predictiveMaintenanceService';
 
@@ -185,6 +185,40 @@ class ResourceForecastService {
         },
       };
 
+      // Calculate previous month comparison (Aug 22 - Sep 20, 2026: late monsoon cyclical wave)
+      const prevDate = new Date(forecastDate);
+      prevDate.setDate(prevDate.getDate() - 30);
+      const prevDateStr = prevDate.toISOString().split('T')[0];
+      const prevDisplayDate = prevDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const prevDayOfWeek = prevDate.toLocaleDateString('en-US', { weekday: 'short' });
+
+      // Seasonal wave model:
+      // Cyclical weekend surge + Late-monsoon ballast fouling & drainage maintenance
+      const prevCyclicFactor = (day % 7 === 0 || day % 7 === 6) ? 1.22 : (day % 7 === 3 ? 1.08 : 0.94);
+      // Late monsoon sinusoidal moisture cycle: higher early in August (days 1-12), tapering toward September
+      const monsoonSeasonalCurve = 0.88 + 0.16 * Math.cos(((day - 4) / 30) * 2 * Math.PI);
+      
+      let prevManpower = Math.round(
+        (totalManpowerRequired * 0.90 * monsoonSeasonalCurve * (prevCyclicFactor / 1.05)) +
+        (day % 5 === 0 ? 10 : -6)
+      );
+      // Ensure positive sensible number within 45-175
+      prevManpower = Math.max(45, Math.min(175, prevManpower));
+      const variancePct = Math.round(((totalManpowerRequired - prevManpower) / prevManpower) * 100);
+
+      let seasonalDriver = 'Routine post-monsoon cyclical track geometry calibration';
+      if (day >= 1 && day <= 6) {
+        seasonalDriver = 'Aug Monsoon Drainage & Ballast Pocket Mud Ejection (Seasonal Wet Ground)';
+      } else if (day >= 7 && day <= 13) {
+        seasonalDriver = 'High-Moisture 25kV Insulator Sparking & Catenary Flashover Patrols';
+      } else if (day >= 14 && day <= 20) {
+        seasonalDriver = 'USFD Monsoon Rail Flaw Wave: Weld Toe Micro-Cracks Rectification';
+      } else if (day >= 21 && day <= 26) {
+        seasonalDriver = 'Pre-Autumn Deep Tamping Possession & Fastener Tightening Cycle';
+      } else {
+        seasonalDriver = 'End-of-Month Coordinated Interlocking Relay Room Overhaul';
+      }
+
       dailyForecast.push({
         dayNumber: day,
         date: dateStr,
@@ -212,6 +246,12 @@ class ResourceForecastService {
         riskLevel,
         recommendedAction: action,
         corridorDemand,
+        previousPeriodDate: prevDateStr,
+        previousPeriodDisplayDate: prevDisplayDate,
+        previousPeriodDayOfWeek: prevDayOfWeek,
+        previousPeriodManpowerRequired: prevManpower,
+        seasonalityVariancePct: variancePct,
+        seasonalityDriver: seasonalDriver,
       });
     }
 
@@ -656,6 +696,10 @@ class ResourceForecastService {
       'TowerWagonsReq',
       'UsfdCarsReq',
       'SpecialMachinesReq',
+      'PreviousMonthDate',
+      'PreviousMonthManpowerReq',
+      'SeasonalityVariancePct',
+      'SeasonalityDriver',
       'PrimaryDefectDriver',
       'PrimaryAgingDriver',
       'RiskLevel',
@@ -679,6 +723,10 @@ class ResourceForecastService {
       d.towerWagonsRequired,
       d.usfdCarsRequired,
       d.specialMachinesRequired,
+      d.previousPeriodDate || '',
+      d.previousPeriodManpowerRequired || '',
+      d.seasonalityVariancePct !== undefined ? `${d.seasonalityVariancePct}%` : '',
+      `"${(d.seasonalityDriver || '').replace(/"/g, '""')}"`,
       `"${d.primaryDefectDriver.replace(/"/g, '""')}"`,
       `"${d.primaryAgingDriver.replace(/"/g, '""')}"`,
       d.riskLevel,
@@ -687,6 +735,428 @@ class ResourceForecastService {
 
     return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
   }
+
+  public getDayContributingTasks(dayPoint: DailyForecastPoint): DayContributingTask[] {
+    const isWeekend = dayPoint.dayOfWeek === 'Sat' || dayPoint.dayOfWeek === 'Sun';
+    const cid = dayPoint.targetCorridorId || 'C001';
+    const day = dayPoint.dayNumber;
+
+    // Total deficit to distribute across tasks
+    const totalDeficit = dayPoint.manpowerDeficit;
+    const isHighDeficit = totalDeficit > 0;
+
+    // Determine task departments based on drivers
+    const agingIsTraction = dayPoint.primaryAgingDriver.toLowerCase().includes('catenary') || dayPoint.primaryAgingDriver.toLowerCase().includes('ohe');
+    const agingIsST = dayPoint.primaryAgingDriver.toLowerCase().includes('point') || dayPoint.primaryAgingDriver.toLowerCase().includes('interlocking');
+    const agingDept: DepartmentType = agingIsTraction ? 'TRACTION' : agingIsST ? 'S&T' : 'ENGINEERING';
+
+    const defectIsTraction = dayPoint.primaryDefectDriver.toLowerCase().includes('catenary') || dayPoint.primaryDefectDriver.toLowerCase().includes('dropper') || dayPoint.primaryDefectDriver.toLowerCase().includes('ohe');
+    const defectIsST = dayPoint.primaryDefectDriver.toLowerCase().includes('point') || dayPoint.primaryDefectDriver.toLowerCase().includes('turnout') || dayPoint.primaryDefectDriver.toLowerCase().includes('signal');
+    const defectDept: DepartmentType = defectIsTraction ? 'TRACTION' : defectIsST ? 'S&T' : 'ENGINEERING';
+
+    // Staffing allocations across tasks
+    // Task 1: Aging asset milestone (e.g. Bridge, Track Bed, Cantilever)
+    const t1Trackmen = agingDept === 'ENGINEERING' ? Math.round(dayPoint.trackmenRequired * 0.36) : Math.round(dayPoint.trackmenRequired * 0.15);
+    const t1Signal = agingDept === 'S&T' ? Math.round(dayPoint.signalTechsRequired * 0.55) : 0;
+    const t1Ohe = agingDept === 'TRACTION' ? Math.round(dayPoint.oheLinesmenRequired * 0.55) : 0;
+    const t1Lookouts = Math.max(2, Math.round(dayPoint.safetyLookoutsRequired * 0.35));
+    const t1Total = t1Trackmen + t1Signal + t1Ohe + t1Lookouts;
+    const t1Deficit = isHighDeficit ? Math.min(totalDeficit, Math.ceil(totalDeficit * 0.42)) : 0;
+
+    // Task 2: Recurring defect cluster rectification
+    const t2Trackmen = defectDept === 'ENGINEERING' ? Math.round(dayPoint.trackmenRequired * 0.28) : Math.round(dayPoint.trackmenRequired * 0.1);
+    const t2Signal = defectDept === 'S&T' ? Math.round(dayPoint.signalTechsRequired * 0.45) : 0;
+    const t2Ohe = defectDept === 'TRACTION' ? Math.round(dayPoint.oheLinesmenRequired * 0.45) : 0;
+    const t2Lookouts = Math.max(2, Math.round(dayPoint.safetyLookoutsRequired * 0.25));
+    const t2Total = t2Trackmen + t2Signal + t2Ohe + t2Lookouts;
+    const t2Deficit = isHighDeficit ? Math.min(totalDeficit - t1Deficit, Math.ceil(totalDeficit * 0.35)) : 0;
+
+    // Task 3: Signal & Telecom Point Machine / Interlocking Safety Inspection
+    const t3Signal = Math.max(0, dayPoint.signalTechsRequired - t1Signal - t2Signal);
+    const t3Lookouts = Math.max(1, Math.round(dayPoint.safetyLookoutsRequired * 0.15));
+    const t3Total = t3Signal + t3Lookouts;
+    const t3Deficit = isHighDeficit ? Math.min(Math.max(0, totalDeficit - t1Deficit - t2Deficit), Math.ceil(totalDeficit * 0.15)) : 0;
+
+    // Task 4: 25kV OHE Catenary Dropper & Insulator Power Block
+    const t4Ohe = Math.max(0, dayPoint.oheLinesmenRequired - t1Ohe - t2Ohe);
+    const t4Lookouts = Math.max(1, Math.round(dayPoint.safetyLookoutsRequired * 0.12));
+    const t4Total = t4Ohe + t4Lookouts;
+    const t4Deficit = isHighDeficit ? Math.min(Math.max(0, totalDeficit - t1Deficit - t2Deficit - t3Deficit), Math.ceil(totalDeficit * 0.1)) : 0;
+
+    // Task 5: Mechanized Track Tamping & Ballast Consolidation
+    const t5Trackmen = Math.max(0, dayPoint.trackmenRequired - t1Trackmen - t2Trackmen);
+    const t5Lookouts = Math.max(1, dayPoint.safetyLookoutsRequired - t1Lookouts - t2Lookouts - t3Lookouts - t4Lookouts);
+    const t5Total = t5Trackmen + t5Lookouts;
+    const t5Deficit = Math.max(0, totalDeficit - t1Deficit - t2Deficit - t3Deficit - t4Deficit);
+
+    // Corridor Asset matching
+    const assetLookup: Record<string, { engineering: { id: string; name: string; section: string }; traction: { id: string; name: string; section: string }; st: { id: string; name: string; section: string } }> = {
+      C001: {
+        engineering: { id: 'A006', name: 'Girder Bridge Br-104 (Yamuna Link)', section: 'KM 22/4 River Span' },
+        traction: { id: 'A004', name: 'OHE Catenary Section OH-01', section: 'KM 10/0 to 18/0' },
+        st: { id: 'A003', name: 'Electronic Interlocking RRI-01', section: 'Cabin A Control Block' },
+      },
+      C002: {
+        engineering: { id: 'A008', name: 'High-Speed Track Section T-02 South', section: 'KM 06/0 to 12/4' },
+        traction: { id: 'A010', name: 'Section Insulator & Isolator ISO-02', section: 'KM 20/6 Neutral Section' },
+        st: { id: 'A009', name: 'Digital Axle Counter DAC-02', section: 'KM 15/2 Auto Block' },
+      },
+      C003: {
+        engineering: { id: 'A015', name: 'Heavy Axle Track Bed T-03 West', section: 'KM 12/0 to 22/0' },
+        traction: { id: 'A017', name: 'Cantilever Assembly Mast C3-44', section: 'KM 28/4 to 34/2' },
+        st: { id: 'A016', name: 'Electric Point Machine PM-301', section: 'Shakurbasti Outer C3' },
+      },
+      C004: {
+        engineering: { id: 'A022', name: 'Main Track Curve Section T-04 Curve', section: 'KM 14/0 to 18/5' },
+        traction: { id: 'A024', name: 'Contact Wire Dropper Span OHE-4', section: 'KM 40/0 to 48/0' },
+        st: { id: 'A023', name: 'Automatic Block Signaling ABS-04', section: 'KM 22/0 to 35/0' },
+      },
+    };
+
+    const corrAssets = assetLookup[cid] || assetLookup.C001;
+
+    const tasks: DayContributingTask[] = [
+      {
+        id: `TSK-${cid}-D${String(day).padStart(2, '0')}-01`,
+        title: dayPoint.primaryAgingDriver,
+        department: agingDept,
+        corridorId: cid,
+        assetId: agingDept === 'TRACTION' ? corrAssets.traction.id : agingDept === 'S&T' ? corrAssets.st.id : corrAssets.engineering.id,
+        assetName: agingDept === 'TRACTION' ? corrAssets.traction.name : agingDept === 'S&T' ? corrAssets.st.name : corrAssets.engineering.name,
+        section: agingDept === 'TRACTION' ? corrAssets.traction.section : agingDept === 'S&T' ? corrAssets.st.section : corrAssets.engineering.section,
+        timeSlot: isWeekend ? '01:00 – 05:30 (Mega-Block Window)' : '01:30 – 05:00 (Night Shadow)',
+        priority: dayPoint.riskLevel === 'CRITICAL' ? 'CRITICAL' : 'HIGH',
+        isDeficitContributor: t1Deficit > 0,
+        deficitContributionReason: t1Deficit > 0
+          ? `Aging asset milestone requires concentrated gang presence; roster is short by -${t1Deficit} personnel against IRTMM compliance mandate.`
+          : 'Fully manned with assigned depot maintenance crew.',
+        requiredStaff: {
+          trackmen: t1Trackmen,
+          signalTechs: t1Signal,
+          oheLinesmen: t1Ohe,
+          safetyLookouts: t1Lookouts,
+          total: t1Total,
+        },
+        allocatedStaff: Math.max(0, t1Total - t1Deficit),
+        staffShortfall: t1Deficit,
+        requiredMachinery: dayPoint.tampersRequired > 0 ? ['Tie Tamper CSM 09-3X', 'Ballast Regulator BRM-205'] : ['Bridge Inspection Unit / Crane 140T'],
+        machineryHours: dayPoint.tampersRequired > 0 ? 4.5 : 3.5,
+        machineryDetails: dayPoint.tampersRequired > 0
+          ? [
+              { name: 'Tie Tamper CSM 09-3X', hours: 4.5, slots: 1, engineCode: 'CSM-09-3X-NDLS' },
+              { name: 'Ballast Regulator BRM-205', hours: 3.5, slots: 1, engineCode: 'BRM-205-TKD' },
+            ]
+          : [
+              { name: 'Bridge Inspection Unit / Crane 140T', hours: 3.5, slots: 1, engineCode: 'GOTTWALD-140T' },
+            ],
+        assignedGangs: [
+          {
+            id: `GANG-${cid}-PW-01`,
+            name: `P-Way Main Line Gang #04 (${cid})`,
+            lead: 'SSE/P-Way R. K. Meena',
+            depot: `${corrAssets.engineering.section} Depot Base`,
+            assignedCount: Math.max(0, t1Total - t1Deficit),
+            trade: 'P-Way Gang',
+            status: t1Deficit > 0 ? 'SHORT_STAFFED' : 'CONFIRMED',
+          },
+          {
+            id: `GANG-${cid}-SAF-01`,
+            name: 'Safety Lookout & Detonator Squad Alpha',
+            lead: 'PWI Safety Supervisor K. Lal',
+            depot: 'Delhi Division Safety Wing',
+            assignedCount: t1Lookouts,
+            trade: 'Safety Squad',
+            status: 'CONFIRMED',
+          },
+        ],
+        statutoryRule: 'IRTMM Para 3.2.1 / IRBM Para 1102 (Track Machine & Bridge Mandate)',
+        rootCauseType: 'AGING_ASSET',
+      },
+      {
+        id: `TSK-${cid}-D${String(day).padStart(2, '0')}-02`,
+        title: dayPoint.primaryDefectDriver,
+        department: defectDept,
+        corridorId: cid,
+        assetId: defectDept === 'TRACTION' ? corrAssets.traction.id : defectDept === 'S&T' ? corrAssets.st.id : corrAssets.engineering.id,
+        assetName: defectDept === 'TRACTION' ? corrAssets.traction.name : defectDept === 'S&T' ? corrAssets.st.name : corrAssets.engineering.name,
+        section: defectDept === 'TRACTION' ? corrAssets.traction.section : defectDept === 'S&T' ? corrAssets.st.section : corrAssets.engineering.section,
+        timeSlot: '13:45 – 16:30 (Traffic Shadow Window)',
+        priority: 'CRITICAL',
+        isDeficitContributor: t2Deficit > 0,
+        deficitContributionReason: t2Deficit > 0
+          ? `High flaw defect density demands emergency specialized rectification team (-${t2Deficit} staff shortfall).`
+          : 'Manned with qualified flaw detection crew.',
+        requiredStaff: {
+          trackmen: t2Trackmen,
+          signalTechs: t2Signal,
+          oheLinesmen: t2Ohe,
+          safetyLookouts: t2Lookouts,
+          total: t2Total,
+        },
+        allocatedStaff: Math.max(0, t2Total - t2Deficit),
+        staffShortfall: t2Deficit,
+        requiredMachinery: dayPoint.usfdCarsRequired > 0 ? ['USFD Rail Flaw Detection Car', 'Emergency Rail Dolly'] : ['OHE Tower Wagon (8-Wheeler DETC)'],
+        machineryHours: dayPoint.usfdCarsRequired > 0 ? 3.0 : 2.5,
+        machineryDetails: dayPoint.usfdCarsRequired > 0
+          ? [
+              { name: 'USFD Rail Flaw Detection Car', hours: 3.0, slots: 1, engineCode: 'USFD-CAR-04' },
+              { name: 'Emergency Rail Dolly & Hydraulic Tensor', hours: 2.0, slots: 1, engineCode: 'DOL-HT-11' },
+            ]
+          : [
+              { name: 'OHE Tower Wagon (8-Wheeler DETC)', hours: 2.5, slots: 1, engineCode: 'DETC-RUPS-09' },
+            ],
+        assignedGangs: [
+          {
+            id: `GANG-${cid}-USFD-02`,
+            name: `USFD Ultrasonic Flaw Rectification Squad #02`,
+            lead: 'JE/USFD Alok Kumar',
+            depot: 'Ghaziabad Fast-Response Flaw Depot',
+            assignedCount: Math.max(0, t2Total - t2Deficit),
+            trade: 'P-Way Gang',
+            status: t2Deficit > 0 ? 'SHORT_STAFFED' : 'CONFIRMED',
+          },
+        ],
+        statutoryRule: 'IRPWM Para 6.4 (USFD Defect Classification & Immediate Clamping)',
+        rootCauseType: 'DEFECT_CLUSTER',
+      },
+      {
+        id: `TSK-${cid}-D${String(day).padStart(2, '0')}-03`,
+        title: 'Point Machine Stroke Current & Multi-Section Axle Counter Calibration',
+        department: 'S&T',
+        corridorId: cid,
+        assetId: corrAssets.st.id,
+        assetName: corrAssets.st.name,
+        section: corrAssets.st.section,
+        timeSlot: '02:00 – 04:15 (Station Interlocking Shadow)',
+        priority: 'HIGH',
+        isDeficitContributor: t3Deficit > 0,
+        deficitContributionReason: t3Deficit > 0
+          ? `Shortage of certified S&T Signal Technicians (-${t3Deficit} staff) creates risk of turnout detection failure.`
+          : 'Standard station signal maintenance crew on duty.',
+        requiredStaff: {
+          trackmen: 0,
+          signalTechs: t3Signal,
+          oheLinesmen: 0,
+          safetyLookouts: t3Lookouts,
+          total: t3Total,
+        },
+        allocatedStaff: Math.max(0, t3Total - t3Deficit),
+        staffShortfall: t3Deficit,
+        requiredMachinery: ['Portable Micro-Ohmmeter & Digital Oscilloscope Test Kit'],
+        machineryHours: 2.25,
+        machineryDetails: [
+          { name: 'Portable Micro-Ohmmeter & Digital Oscilloscope Kit', hours: 2.25, slots: 1, engineCode: 'ST-CALIB-01' },
+        ],
+        assignedGangs: [
+          {
+            id: `GANG-${cid}-ST-07`,
+            name: `S&T Interlocking Signal Gang #07`,
+            lead: 'SSE/Signal Vikas Sharma',
+            depot: 'Anand Vihar S&T Maintenance Depot',
+            assignedCount: Math.max(0, t3Total - t3Deficit),
+            trade: 'Signal Squad',
+            status: t3Deficit > 0 ? 'SHORT_STAFFED' : 'CONFIRMED',
+          },
+        ],
+        statutoryRule: 'SEM Para 19.4 (Signal Engineering Manual - Monthly Point Machine Overhaul)',
+        rootCauseType: 'CYCLIC_SCHEDULE',
+      },
+      {
+        id: `TSK-${cid}-D${String(day).padStart(2, '0')}-04`,
+        title: '25kV Overhead Catenary Wire Height & Stagger Laser Profiling',
+        department: 'TRACTION',
+        corridorId: cid,
+        assetId: corrAssets.traction.id,
+        assetName: corrAssets.traction.name,
+        section: corrAssets.traction.section,
+        timeSlot: '14:00 – 16:00 (Regulated Power Block)',
+        priority: 'MEDIUM',
+        isDeficitContributor: t4Deficit > 0,
+        deficitContributionReason: t4Deficit > 0
+          ? `TRD Earthing discharge rods require minimum certified linesmen (-${t4Deficit} staff shortfall).`
+          : 'Depot TRD Linemen Gang assigned.',
+        requiredStaff: {
+          trackmen: 0,
+          signalTechs: 0,
+          oheLinesmen: t4Ohe,
+          safetyLookouts: t4Lookouts,
+          total: t4Total,
+        },
+        allocatedStaff: Math.max(0, t4Total - t4Deficit),
+        staffShortfall: t4Deficit,
+        requiredMachinery: ['OHE Tower Wagon (RUPS-DETC 8W)'],
+        machineryHours: 2.0,
+        machineryDetails: [
+          { name: 'OHE Tower Wagon (RUPS-DETC 8W)', hours: 2.0, slots: 1, engineCode: 'TW-DETC-8W-03' },
+        ],
+        assignedGangs: [
+          {
+            id: `GANG-${cid}-TRD-03`,
+            name: `TRD Catenary Overhead Maintenance Gang #03`,
+            lead: 'SSE/TRD Suresh Chandra',
+            depot: 'OHE Maintenance Depot Sahibabad',
+            assignedCount: Math.max(0, t4Total - t4Deficit),
+            trade: 'TRD Tower Crew',
+            status: t4Deficit > 0 ? 'SHORT_STAFFED' : 'CONFIRMED',
+          },
+        ],
+        statutoryRule: 'ACTM Vol II Para 20.3 (Overhead Traction Isolating & Bonding Protocol)',
+        rootCauseType: 'CYCLIC_SCHEDULE',
+      },
+      {
+        id: `TSK-${cid}-D${String(day).padStart(2, '0')}-05`,
+        title: 'Continuous Track Geometry Correction & Dynamic Stabilization',
+        department: 'ENGINEERING',
+        corridorId: cid,
+        assetId: corrAssets.engineering.id,
+        assetName: corrAssets.engineering.name,
+        section: corrAssets.engineering.section,
+        timeSlot: '01:45 – 05:00 (Integrated Track Machine Block)',
+        priority: isWeekend ? 'CRITICAL' : 'HIGH',
+        isDeficitContributor: t5Deficit > 0,
+        deficitContributionReason: t5Deficit > 0
+          ? `Heavy tamping possession requires full P-Way support gang (-${t5Deficit} staff deficit).`
+          : 'PWI Section Gang fully mobilized.',
+        requiredStaff: {
+          trackmen: t5Trackmen,
+          signalTechs: 0,
+          oheLinesmen: 0,
+          safetyLookouts: t5Lookouts,
+          total: t5Total,
+        },
+        allocatedStaff: Math.max(0, t5Total - t5Deficit),
+        staffShortfall: t5Deficit,
+        requiredMachinery: [
+          'Tie Tamper CSM 09-3X',
+          'Ballast Regulator BRM-205',
+          'Dynamic Track Stabilizer (DTS)',
+        ],
+        machineryHours: 4.75,
+        machineryDetails: [
+          { name: 'Tie Tamper CSM 09-3X', hours: 4.75, slots: 1, engineCode: 'CSM-09-3X-NDLS' },
+          { name: 'Ballast Regulator BRM-205', hours: 4.0, slots: 1, engineCode: 'BRM-205-TKD' },
+          { name: 'Dynamic Track Stabilizer (DTS)', hours: 3.5, slots: 1, engineCode: 'DTS-302-NR' },
+        ],
+        assignedGangs: [
+          {
+            id: `GANG-${cid}-MACH-11`,
+            name: `Mechanized Tamping Support Gang #11`,
+            lead: 'SSE/Track Machines D. P. Yadav',
+            depot: 'Delhi Division P-Way Yard Shakurbasti',
+            assignedCount: Math.max(0, t5Total - t5Deficit),
+            trade: 'P-Way Gang',
+            status: t5Deficit > 0 ? 'SHORT_STAFFED' : 'CONFIRMED',
+          },
+        ],
+        statutoryRule: 'IRTMM Para 2.4.1 (Mechanized Maintenance Code of Practice)',
+        rootCauseType: isWeekend ? 'MEGA_BLOCK' : 'CYCLIC_SCHEDULE',
+      },
+    ];
+
+    return tasks;
+  }
+
+  public exportDayTasksCsv(dayPoint: DailyForecastPoint, tasks: DayContributingTask[]): string {
+    const headers = [
+      'TaskId',
+      'Title',
+      'Department',
+      'CorridorId',
+      'AssetId',
+      'AssetName',
+      'Section',
+      'TimeSlot',
+      'Priority',
+      'IsDeficitContributor',
+      'StaffRequiredTotal',
+      'StaffAllocated',
+      'StaffShortfall',
+      'AssignedGangs',
+      'MachineryHours',
+      'RequiredMachinery',
+      'TrackmenRequired',
+      'SignalTechsRequired',
+      'OheLinesmenRequired',
+      'LookoutsRequired',
+      'StatutoryRule',
+      'RootCauseType',
+      'DeficitReason',
+    ];
+
+    const rows = tasks.map((t) => [
+      t.id,
+      `"${t.title.replace(/"/g, '""')}"`,
+      t.department,
+      t.corridorId,
+      t.assetId,
+      `"${t.assetName.replace(/"/g, '""')}"`,
+      `"${t.section.replace(/"/g, '""')}"`,
+      `"${t.timeSlot.replace(/"/g, '""')}"`,
+      t.priority,
+      t.isDeficitContributor ? 'YES' : 'NO',
+      t.requiredStaff.total,
+      t.allocatedStaff,
+      t.staffShortfall,
+      `"${t.assignedGangs.map((g) => `${g.name} (${g.lead}, ${g.assignedCount} staff)`).join('; ').replace(/"/g, '""')}"`,
+      t.machineryHours,
+      `"${t.requiredMachinery.join('; ').replace(/"/g, '""')}"`,
+      t.requiredStaff.trackmen,
+      t.requiredStaff.signalTechs,
+      t.requiredStaff.oheLinesmen,
+      t.requiredStaff.safetyLookouts,
+      `"${t.statutoryRule.replace(/"/g, '""')}"`,
+      t.rootCauseType,
+      `"${t.deficitContributionReason.replace(/"/g, '""')}"`,
+    ]);
+
+    return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+  }
+}
+
+export interface AssignedGangInfo {
+  id: string;
+  name: string;
+  lead: string;
+  depot: string;
+  assignedCount: number;
+  trade: 'P-Way Gang' | 'Signal Squad' | 'TRD Tower Crew' | 'Safety Squad';
+  status: 'CONFIRMED' | 'SHORT_STAFFED' | 'STANDBY_ALERT';
+}
+
+export interface TaskMachineryRequirement {
+  name: string;
+  hours: number;
+  slots: number;
+  engineCode?: string;
+}
+
+export interface DayContributingTask {
+  id: string;
+  title: string;
+  department: DepartmentType;
+  corridorId: string;
+  assetId: string;
+  assetName: string;
+  section: string;
+  timeSlot: string;
+  priority: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  isDeficitContributor: boolean;
+  deficitContributionReason: string;
+  requiredStaff: {
+    trackmen: number;
+    signalTechs: number;
+    oheLinesmen: number;
+    safetyLookouts: number;
+    total: number;
+  };
+  allocatedStaff: number;
+  staffShortfall: number;
+  requiredMachinery: string[];
+  machineryHours: number;
+  machineryDetails: TaskMachineryRequirement[];
+  assignedGangs: AssignedGangInfo[];
+  statutoryRule: string;
+  rootCauseType: 'AGING_ASSET' | 'DEFECT_CLUSTER' | 'CYCLIC_SCHEDULE' | 'MEGA_BLOCK';
 }
 
 export const resourceForecastService = new ResourceForecastService();

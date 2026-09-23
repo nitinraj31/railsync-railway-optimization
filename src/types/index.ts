@@ -1041,6 +1041,14 @@ export interface DailyForecastPoint {
   riskLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
   recommendedAction: string;
   corridorDemand: Record<string, { manpower: number; machinery: number; blocksCount: number }>;
+
+  // Cyclical Seasonality & Historical Period Comparison
+  previousPeriodDate?: string;
+  previousPeriodDisplayDate?: string;
+  previousPeriodDayOfWeek?: string;
+  previousPeriodManpowerRequired?: number;
+  seasonalityVariancePct?: number;
+  seasonalityDriver?: string;
 }
 
 export interface AgingAssetLifecycleForecast {
@@ -1138,5 +1146,42 @@ export interface MaintenanceResourceForecastResult {
     model: string;
   };
 }
+
+export type ThresholdMetricMode = 'DEFICIT_PERCENT' | 'UTILIZATION_PERCENT';
+
+export type DeficitAlertPresetName =
+  | 'IRTMM_STANDARD'
+  | 'HEAVY_FREIGHT_SURGE'
+  | 'SAFETY_BUFFER_CONSERVATIVE'
+  | 'CUSTOM';
+
+export interface DeficitAlertThresholdSettings {
+  manpowerWarningThresholdPct: number;    // % deficit or % utilization
+  manpowerCriticalThresholdPct: number;   // % deficit or % utilization
+  machineryWarningThresholdPct: number;  // % deficit or % utilization
+  machineryCriticalThresholdPct: number; // % deficit or % utilization
+  thresholdMode: ThresholdMetricMode;    // DEFICIT_PERCENT (e.g. +5%, +15%) or UTILIZATION_PERCENT (e.g. 95%, 110%)
+  minimumManpowerDeficitHeadcount: number; // filter trivial headcounts (e.g. >= 1)
+  minimumMachineryDeficitUnits: number; // filter trivial machines (e.g. >= 1)
+  enableAudioVisualBeacon: boolean;      // pulsing beacon on critical cards
+  autoEscalateToSrDen: boolean;          // mark for Senior Divisional Engineer review
+  targetCorridorOverride: string;        // 'ALL' or specific corridor
+  presetName: DeficitAlertPresetName;
+  lastUpdated?: string;
+}
+
+export const DEFAULT_DEFICIT_ALERT_SETTINGS: DeficitAlertThresholdSettings = {
+  manpowerWarningThresholdPct: 5,
+  manpowerCriticalThresholdPct: 15,
+  machineryWarningThresholdPct: 5,
+  machineryCriticalThresholdPct: 15,
+  thresholdMode: 'DEFICIT_PERCENT',
+  minimumManpowerDeficitHeadcount: 1,
+  minimumMachineryDeficitUnits: 1,
+  enableAudioVisualBeacon: true,
+  autoEscalateToSrDen: true,
+  targetCorridorOverride: 'ALL',
+  presetName: 'IRTMM_STANDARD',
+};
 
 

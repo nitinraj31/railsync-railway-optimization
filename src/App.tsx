@@ -86,7 +86,7 @@ export default function App() {
   const [targetResourceParams, setTargetResourceParams] = useState<{
     resourceType?: string;
     corridorId?: string;
-    tab?: 'MACHINERY' | 'MANPOWER';
+    tab?: 'MACHINERY' | 'MANPOWER' | 'FATIGUE' | 'FORECAST';
     shift?: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
   }>({});
 

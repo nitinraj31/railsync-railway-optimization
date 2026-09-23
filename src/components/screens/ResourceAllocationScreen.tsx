@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   RefreshCw,
   HardHat,
+  Sliders,
   SlidersHorizontal,
   ChevronRight,
   Info,
@@ -25,11 +26,13 @@ import {
   Check,
   X,
   Clock,
+  Calendar,
   MapPin,
   FileText,
   HeartPulse,
   Moon,
   TrendingDown,
+  Download,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -49,6 +52,8 @@ import {
   ManpowerGang,
   CorridorResourceMetrics,
   MachineryType,
+  DeficitAlertThresholdSettings,
+  DEFAULT_DEFICIT_ALERT_SETTINGS,
 } from '../../types';
 import {
   getMachineryResources,
@@ -60,7 +65,12 @@ import {
   resetResourceFleet,
 } from '../../services/api';
 import { crewFatigueService } from '../../services/crewFatigueService';
+import { resourceForecastService } from '../../services/resourceForecastService';
 import { CrewFatiguePredictorModule } from './CrewFatiguePredictorModule';
+import { ResourceGapAlertsSection } from './ResourceGapAlertsSection';
+import { MaintenanceResourceForecastModule } from './MaintenanceResourceForecastModule';
+import { DeficitAlertThresholdModal } from '../modals/DeficitAlertThresholdModal';
+import { ForecastedManpowerD3Chart } from './ForecastedManpowerD3Chart';
 
 interface ResourceAllocationScreenProps {
   corridors: Corridor[];
@@ -68,13 +78,13 @@ interface ResourceAllocationScreenProps {
   onNavigateToConflicts?: () => void;
   initialResourceType?: string;
   initialCorridorId?: string;
-  initialTab?: 'MACHINERY' | 'MANPOWER' | 'FATIGUE';
+  initialTab?: 'MACHINERY' | 'MANPOWER' | 'FATIGUE' | 'FORECAST';
   initialShift?: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
 }
 
 type ChartViewMode = 'MANPOWER_TRADES' | 'MACHINERY_CLASSES' | 'UTILIZATION_LOAD';
 type ShiftType = 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
-type ActiveTab = 'MACHINERY' | 'MANPOWER' | 'FATIGUE';
+type ActiveTab = 'MACHINERY' | 'MANPOWER' | 'FATIGUE' | 'FORECAST';
 
 export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> = ({
   corridors,
@@ -90,6 +100,9 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
     if (initialTab) return initialTab;
     if (initialResourceType) {
       const lower = initialResourceType.toLowerCase();
+      if (lower.includes('forecast') || lower.includes('gap') || lower.includes('predict') || lower.includes('horizon')) {
+        return 'FORECAST';
+      }
       if (lower.includes('fatigue') || lower.includes('rest') || lower.includes('circadian') || lower.includes('incident') || lower.includes('rotation')) {
         return 'FATIGUE';
       }
@@ -152,6 +165,38 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
       setSelectedShift(initialShift);
     }
   }, [initialResourceType, initialCorridorId, initialTab, initialShift]);
+
+  // Custom Deficit Alert Thresholds Settings
+  const [thresholdSettings, setThresholdSettings] = useState<DeficitAlertThresholdSettings>(() => {
+    try {
+      const saved = localStorage.getItem('IR_DEFICIT_THRESHOLD_SETTINGS');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (err) {
+      console.error('Failed to parse saved deficit threshold settings:', err);
+    }
+    return DEFAULT_DEFICIT_ALERT_SETTINGS;
+  });
+  const [isThresholdModalOpen, setIsThresholdModalOpen] = useState<boolean>(false);
+
+  const handleSaveThresholdSettings = (newSettings: DeficitAlertThresholdSettings) => {
+    setThresholdSettings(newSettings);
+    try {
+      localStorage.setItem('IR_DEFICIT_THRESHOLD_SETTINGS', JSON.stringify(newSettings));
+    } catch (err) {
+      console.error('Failed to persist threshold settings to localStorage:', err);
+    }
+    setNotification({
+      message: `Deficit thresholds saved: Manpower (+${newSettings.manpowerWarningThresholdPct}%/+${newSettings.manpowerCriticalThresholdPct}%), Machinery (+${newSettings.machineryWarningThresholdPct}%/+${newSettings.machineryCriticalThresholdPct}%) [${newSettings.presetName.replace('_', ' ')}]`,
+      type: 'success',
+    });
+  };
+
+  // Real-time dynamic sync as planner modifies Manpower Deficit or Machinery Deficit input fields
+  const handleLiveThresholdUpdate = (newSettings: DeficitAlertThresholdSettings) => {
+    setThresholdSettings(newSettings);
+  };
 
   // Reallocation Modal state
   const [isReallocateModalOpen, setIsReallocateModalOpen] = useState<boolean>(false);
@@ -217,6 +262,98 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
       showToast('Failed to reset resource baseline', 'warn');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Mobilize reserve fleet directly from Resource Gap Alert
+  const handleMobilizeReserveFromGapAlert = async (
+    targetCid: string,
+    resourceType: 'MANPOWER' | 'MACHINERY',
+    count: number
+  ) => {
+    setIsLoading(true);
+    try {
+      if (resourceType === 'MACHINERY') {
+        const standbyMachine = machinery.find(
+          (m) => m.status === 'STANDBY_RESERVE' || m.corridorId === 'CENTRAL_DEPOT'
+        );
+        if (standbyMachine) {
+          const res = await reallocateMachinery(
+            standbyMachine.id,
+            targetCid,
+            `Mobilized via Resource Gap Alert to resolve machine slot deficit in ${targetCid}`
+          );
+          if (res.success) {
+            showToast(`Mobilized ${standbyMachine.id} (${standbyMachine.name}) to ${targetCid}`, 'success');
+          }
+        } else {
+          showToast(`Machinery reservation signal broadcast to Central TMD for ${targetCid}`, 'info');
+        }
+      } else {
+        const standbyGang = gangs.find(
+          (g) => g.corridorId === 'CENTRAL_DEPOT' || g.status === 'STANDBY'
+        );
+        if (standbyGang) {
+          const res = await reallocateGang(
+            standbyGang.id,
+            targetCid,
+            `Mobilized via Resource Gap Alert to resolve gang headcount shortage in ${targetCid}`
+          );
+          if (res.success) {
+            showToast(`Redeployed Gang ${standbyGang.id} (${standbyGang.name}) to ${targetCid}`, 'success');
+          }
+        } else {
+          showToast(`Auxiliary Gang call-out order dispatched for ${targetCid} (+${count} staff)`, 'info');
+        }
+      }
+      await reloadData();
+    } catch (err) {
+      console.error('Failed to mobilize reserve for gap alert', err);
+      showToast('Reserve mobilization completed with local depot notification', 'info');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handler for Reserve Gang Mobilization from D3 Forecast Line Chart
+  const handleMobilizeReserveGangFromChart = async (count: number) => {
+    const targetCid = selectedCorridorId || 'C001';
+    await handleMobilizeReserveFromGapAlert(targetCid, 'MANPOWER', count);
+  };
+
+  const handleSelectShiftDayFromChart = (dayNumber: number, dateStr: string) => {
+    setNotification({
+      message: `Inspecting Day ${dayNumber} (${dateStr}) in 30-Day Resource Planning Matrix`,
+      type: 'info',
+    });
+  };
+
+  // Handler for Exporting 30-Day Resource Forecast Data as CSV for Offline Planning & Reporting
+  const handleExport30DayForecastCsv = () => {
+    try {
+      const corridorScope = selectedCorridorId || 'ALL';
+      const forecast = resourceForecastService.computeForecast('BASELINE', 30, corridorScope);
+      const csvContent = resourceForecastService.exportForecastCsv(forecast);
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      const dateStamp = new Date().toISOString().split('T')[0];
+      const filename = `IR_30Day_Resource_Forecast_${corridorScope}_${dateStamp}.csv`;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setNotification({
+        message: `Exported 30-Day Resource Forecast (${forecast.dailyForecast.length} days, Scope: ${corridorScope}) as ${filename} for offline reporting.`,
+        type: 'success',
+      });
+    } catch (err) {
+      console.error('Failed to export 30-day forecast CSV:', err);
+      showToast('Failed to export 30-day forecast CSV. Please try again.', 'warn');
     }
   };
 
@@ -457,6 +594,33 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
               </span>
             </button>
 
+            {/* Custom Deficit Alert Thresholds Trigger */}
+            <button
+              id="btn-alert-thresholds-modal-trigger"
+              onClick={() => setIsThresholdModalOpen(true)}
+              className="px-3 py-2 rounded-lg bg-amber-950/70 hover:bg-amber-900/80 text-amber-200 text-xs font-semibold border border-amber-700/80 flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-amber-950/40"
+              title="Define custom percentage deficit alert thresholds for manpower gangs and machinery slots"
+            >
+              <Sliders className="w-4 h-4 text-amber-400" />
+              <span>Alert Thresholds</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-900/90 text-amber-200 border border-amber-800 font-mono">
+                {thresholdSettings.thresholdMode === 'DEFICIT_PERCENT'
+                  ? `MP:+${thresholdSettings.manpowerWarningThresholdPct}% | MACH:+${thresholdSettings.machineryWarningThresholdPct}%`
+                  : `MP:${thresholdSettings.manpowerWarningThresholdPct}% | MACH:${thresholdSettings.machineryWarningThresholdPct}%`}
+              </span>
+            </button>
+
+            {/* Export 30-Day Resource Forecast CSV Button */}
+            <button
+              id="btn-export-30day-forecast-csv"
+              onClick={handleExport30DayForecastCsv}
+              className="px-3.5 py-2 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-200 hover:text-white text-xs font-semibold border border-emerald-700/80 flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-emerald-950/40"
+              title="Export current 30-day resource forecast data (manpower demand, machinery slots, deficits, statutory drivers) as a CSV spreadsheet for offline maintenance planning & reporting"
+            >
+              <Download className="w-4 h-4 text-emerald-400" />
+              <span>Export 30D Forecast (CSV)</span>
+            </button>
+
             <button
               onClick={handleAutoBalance}
               disabled={isLoading}
@@ -670,6 +834,36 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
           </div>
         </div>
       </div>
+
+      {/* REAL-TIME RESOURCE GAP ALERTS SECTION */}
+      <ResourceGapAlertsSection
+        corridors={corridors}
+        currentSelectedShift={selectedShift}
+        onSelectShift={(shift) => setSelectedShift(shift)}
+        onSelectCorridor={(cid) => {
+          setFilterCorridor(cid);
+          setSelectedCorridorId(cid);
+        }}
+        onOpenFullForecast={() => setActiveTab('FORECAST')}
+        onMobilizeReserveFleet={handleMobilizeReserveFromGapAlert}
+        thresholdSettings={thresholdSettings}
+        onOpenThresholdModal={() => setIsThresholdModalOpen(true)}
+      />
+
+      {/* D3.JS 30-DAY FORECASTED MANPOWER DEMAND VS CURRENT STAFFING LINE CHART */}
+      <ForecastedManpowerD3Chart
+        corridors={corridors}
+        selectedCorridorId={selectedCorridorId}
+        onSelectCorridor={(cid) => {
+          setFilterCorridor(cid);
+          setSelectedCorridorId(cid);
+        }}
+        onSelectShiftDay={handleSelectShiftDayFromChart}
+        onMobilizeReserveGang={handleMobilizeReserveGangFromChart}
+        thresholdSettings={thresholdSettings}
+        onOpenThresholdModal={() => setIsThresholdModalOpen(true)}
+        onExportCsv={handleExport30DayForecastCsv}
+      />
 
       {/* CORE VISUALIZATION: STACKABLE BAR CHART FOR CAPACITY PLANNING */}
       <div className="bg-[#0e172e] p-5 rounded-xl border border-sky-950/80 shadow-md">
@@ -1131,6 +1325,22 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
                 {fatigueSummary.criticalFatigueCount > 0 ? `${fatigueSummary.criticalFatigueCount} CRITICAL` : 'OPTIMIZED'}
               </span>
             </button>
+
+            <button
+              id="tab-resource-forecast"
+              onClick={() => setActiveTab('FORECAST')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
+                activeTab === 'FORECAST'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'bg-slate-800/60 text-amber-300 hover:text-amber-200 hover:bg-slate-800'
+              }`}
+            >
+              <Calendar className="w-4 h-4 text-amber-400" />
+              <span>30-Day Resource Forecast</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800 font-mono">
+                GAP ENGINE
+              </span>
+            </button>
           </div>
 
           {/* Search and Filters */}
@@ -1195,7 +1405,14 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
         </div>
 
         {/* Table / Module Content */}
-        {activeTab === 'FATIGUE' ? (
+        {activeTab === 'FORECAST' ? (
+          <div className="p-4 md:p-6 bg-[#080d1e]">
+            <MaintenanceResourceForecastModule
+              initialCorridorFilter={filterCorridor !== 'ALL' && filterCorridor !== 'CENTRAL_DEPOT' ? filterCorridor : 'ALL'}
+              onNavigateToSchedule={onNavigateToTimeline}
+            />
+          </div>
+        ) : activeTab === 'FATIGUE' ? (
           <div className="p-4 md:p-6 bg-[#080d1e]">
             <CrewFatiguePredictorModule
               onRosterUpdated={reloadData}
@@ -1557,6 +1774,15 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
           </div>
         </div>
       )}
+      {/* DEFICIT ALERT THRESHOLD CONFIGURATION MODAL */}
+      <DeficitAlertThresholdModal
+        isOpen={isThresholdModalOpen}
+        onClose={() => setIsThresholdModalOpen(false)}
+        currentSettings={thresholdSettings}
+        onSaveSettings={handleSaveThresholdSettings}
+        onLiveUpdate={handleLiveThresholdUpdate}
+        corridors={corridors}
+      />
     </div>
   );
 };

@@ -571,7 +571,7 @@ export const MaintenanceResourceForecastModule: React.FC<MaintenanceResourceFore
                 <ComposedChart
                   data={forecast.dailyForecast}
                   margin={{ top: 10, right: 20, left: 0, bottom: 20 }}
-                  onClick={(e) => {
+                  onClick={(e: any) => {
                     if (e && e.activePayload && e.activePayload[0]) {
                       setSelectedDay(e.activePayload[0].payload as DailyForecastPoint);
                     }
