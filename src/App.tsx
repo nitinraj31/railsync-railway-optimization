@@ -532,6 +532,8 @@ export default function App() {
           {currentScreen === 'resource_allocation' && (
             <ResourceAllocationScreen
               corridors={corridors}
+              blocks={blocks}
+              onConflictRecalculated={refreshAllData}
               onNavigateToTimeline={() => setCurrentScreen('timeline')}
               onNavigateToConflicts={() => setCurrentScreen('conflicts')}
               initialResourceType={targetResourceParams.resourceType}

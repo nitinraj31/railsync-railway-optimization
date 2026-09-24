@@ -1,6 +1,7 @@
 import {
   MaintenanceResourceForecastResult,
   DailyForecastPoint,
+  DailyForecastOverride,
   AgingAssetLifecycleForecast,
   RecurringDefectPatternForecast,
   CorridorForecastSummary,
@@ -23,6 +24,70 @@ import { HISTORICAL_DEFECT_CLUSTERS } from './predictiveMaintenanceService';
 class ResourceForecastService {
   // Base date for standard 30-day simulation
   private readonly BASE_DATE = new Date('2026-09-21T00:00:00Z');
+  private manualOverrides: Map<number, DailyForecastOverride> = new Map();
+
+  constructor() {
+    this.manualOverrides = this.loadOverrides();
+  }
+
+  private loadOverrides(): Map<number, DailyForecastOverride> {
+    const map = new Map<number, DailyForecastOverride>();
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = localStorage.getItem('IR_MANUAL_FORECAST_OVERRIDES');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((item: DailyForecastOverride) => {
+              if (item && item.dayNumber) {
+                map.set(item.dayNumber, item);
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load manual forecast overrides from localStorage:', e);
+    }
+    return map;
+  }
+
+  private persistOverrides(): void {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const arr = Array.from(this.manualOverrides.values());
+        localStorage.setItem('IR_MANUAL_FORECAST_OVERRIDES', JSON.stringify(arr));
+      }
+    } catch (e) {
+      console.error('Failed to persist manual forecast overrides to localStorage:', e);
+    }
+  }
+
+  public setManualOverride(override: DailyForecastOverride): void {
+    this.manualOverrides.set(override.dayNumber, override);
+    this.persistOverrides();
+  }
+
+  public getManualOverride(dayNumber: number): DailyForecastOverride | undefined {
+    return this.manualOverrides.get(dayNumber);
+  }
+
+  public getAllManualOverrides(): DailyForecastOverride[] {
+    return Array.from(this.manualOverrides.values()).sort((a, b) => a.dayNumber - b.dayNumber);
+  }
+
+  public removeManualOverride(dayNumber: number): boolean {
+    const existed = this.manualOverrides.delete(dayNumber);
+    if (existed) {
+      this.persistOverrides();
+    }
+    return existed;
+  }
+
+  public clearAllManualOverrides(): void {
+    this.manualOverrides.clear();
+    this.persistOverrides();
+  }
 
   public computeForecast(
     scenario: ForecastScenarioType = 'BASELINE',
@@ -145,24 +210,90 @@ class ResourceForecastService {
         baseUsfdCars = Math.max(0, Math.round(baseUsfdCars * factor));
       }
 
-      const totalManpowerRequired = baseTrackmen + baseSignal + baseOhe + baseLookouts;
-      const totalMachineryRequired =
+      let totalManpowerRequired = baseTrackmen + baseSignal + baseOhe + baseLookouts;
+      let totalMachineryRequired =
         baseTampers + baseRegulators + baseStabilizers + baseTowerWagons + baseUsfdCars + baseSpecial;
 
       // Available on this day
-      const dayAvailManpower = selectedCorridor === 'ALL' ? totalAvailableManpower : Math.round(totalAvailableManpower / 3.2);
-      const dayAvailMachinery = selectedCorridor === 'ALL' ? totalAvailableMachineSlots : Math.round(totalAvailableMachineSlots / 3);
+      let dayAvailManpower = selectedCorridor === 'ALL' ? totalAvailableManpower : Math.round(totalAvailableManpower / 3.2);
+      let dayAvailMachinery = selectedCorridor === 'ALL' ? totalAvailableMachineSlots : Math.round(totalAvailableMachineSlots / 3);
 
-      const manpowerDeficit = Math.max(0, totalManpowerRequired - dayAvailManpower);
-      const machineryDeficit = Math.max(0, totalMachineryRequired - dayAvailMachinery);
+      let manpowerDeficit = Math.max(0, totalManpowerRequired - dayAvailManpower);
+      let machineryDeficit = Math.max(0, totalMachineryRequired - dayAvailMachinery);
 
       if (manpowerDeficit > 0 || machineryDeficit > 0) {
         riskLevel = 'CRITICAL';
         action = `RESOURCE DEFICIT: Require +${manpowerDeficit} personnel and +${machineryDeficit} machine slot(s). Mobilize reserve fleet from Central TMD.`;
       }
 
+      // Check if planner has set a manual override for this day
+      const activeOverride = this.manualOverrides.get(day);
+      let isManualOverride = false;
+
+      if (activeOverride) {
+        isManualOverride = true;
+
+        if (activeOverride.overrideManpowerRequired !== undefined) {
+          totalManpowerRequired = activeOverride.overrideManpowerRequired;
+          if (activeOverride.overrideTrackmenRequired !== undefined) {
+            baseTrackmen = activeOverride.overrideTrackmenRequired;
+          } else {
+            baseTrackmen = Math.round(totalManpowerRequired * 0.52);
+          }
+          if (activeOverride.overrideSignalTechsRequired !== undefined) {
+            baseSignal = activeOverride.overrideSignalTechsRequired;
+          } else {
+            baseSignal = Math.round(totalManpowerRequired * 0.18);
+          }
+          if (activeOverride.overrideOheLinesmenRequired !== undefined) {
+            baseOhe = activeOverride.overrideOheLinesmenRequired;
+          } else {
+            baseOhe = Math.round(totalManpowerRequired * 0.20);
+          }
+          if (activeOverride.overrideSafetyLookoutsRequired !== undefined) {
+            baseLookouts = activeOverride.overrideSafetyLookoutsRequired;
+          } else {
+            baseLookouts = Math.max(2, totalManpowerRequired - baseTrackmen - baseSignal - baseOhe);
+          }
+        }
+
+        if (activeOverride.overrideManpowerAvailable !== undefined) {
+          dayAvailManpower = activeOverride.overrideManpowerAvailable;
+        }
+
+        if (activeOverride.overrideMachinerySlotsRequired !== undefined) {
+          totalMachineryRequired = activeOverride.overrideMachinerySlotsRequired;
+          if (activeOverride.overrideTampersRequired !== undefined) baseTampers = activeOverride.overrideTampersRequired;
+          if (activeOverride.overrideBallastRegulatorsRequired !== undefined) baseRegulators = activeOverride.overrideBallastRegulatorsRequired;
+          if (activeOverride.overrideStabilizersRequired !== undefined) baseStabilizers = activeOverride.overrideStabilizersRequired;
+          if (activeOverride.overrideTowerWagonsRequired !== undefined) baseTowerWagons = activeOverride.overrideTowerWagonsRequired;
+          if (activeOverride.overrideUsfdCarsRequired !== undefined) baseUsfdCars = activeOverride.overrideUsfdCarsRequired;
+        }
+
+        if (activeOverride.overrideMachinerySlotsAvailable !== undefined) {
+          dayAvailMachinery = activeOverride.overrideMachinerySlotsAvailable;
+        }
+
+        // Recalculate deficits
+        manpowerDeficit = Math.max(0, totalManpowerRequired - dayAvailManpower);
+        machineryDeficit = Math.max(0, totalMachineryRequired - dayAvailMachinery);
+
+        if (activeOverride.corridorId && activeOverride.corridorId !== 'ALL') {
+          targetCorridorId = activeOverride.corridorId;
+        }
+
+        dayAgingDriver = `[Planner Override] ${activeOverride.adjustmentReason || 'Manual Daily Adjustment'}`;
+        if (manpowerDeficit > 0 || machineryDeficit > 0) {
+          riskLevel = 'CRITICAL';
+          action = `PLANNER OVERRIDE DEFICIT: Requires +${manpowerDeficit} staff & +${machineryDeficit} machine slot(s). Conflict engine recalculated.`;
+        } else {
+          riskLevel = 'LOW';
+          action = `PLANNER OVERRIDE VERIFIED: Resource sufficiency confirmed (+${dayAvailManpower - totalManpowerRequired} buffer). Conflict engine cleared.`;
+        }
+      }
+
       // Corridor specific demand breakdown
-      const corridorDemand = {
+      const corridorDemand: Record<string, { manpower: number; machinery: number; blocksCount: number }> = {
         C001: {
           manpower: Math.round(totalManpowerRequired * 0.32),
           machinery: Math.max(1, Math.round(totalMachineryRequired * 0.3)),
@@ -184,6 +315,11 @@ class ResourceForecastService {
           blocksCount: Math.round(2 + (day % 3)),
         },
       };
+
+      if (activeOverride && activeOverride.corridorId && activeOverride.corridorId !== 'ALL' && corridorDemand[activeOverride.corridorId]) {
+        corridorDemand[activeOverride.corridorId].manpower = totalManpowerRequired;
+        corridorDemand[activeOverride.corridorId].machinery = totalMachineryRequired;
+      }
 
       // Calculate previous month comparison (Aug 22 - Sep 20, 2026: late monsoon cyclical wave)
       const prevDate = new Date(forecastDate);
@@ -252,6 +388,8 @@ class ResourceForecastService {
         previousPeriodManpowerRequired: prevManpower,
         seasonalityVariancePct: variancePct,
         seasonalityDriver: seasonalDriver,
+        isManualOverride,
+        overrideDetails: activeOverride,
       });
     }
 

@@ -21,6 +21,8 @@ import {
   ArrowUpRight,
   Table,
   LayoutGrid,
+  RotateCcw,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { DailyForecastPoint, Corridor, DepartmentType } from '../../types';
 import {
@@ -36,6 +38,7 @@ interface ForecastDayDetailSidePanelProps {
   corridors?: Corridor[];
   onMobilizeReserveGang?: (count: number) => void;
   onSelectShiftDay?: (dayNumber: number, dateStr: string) => void;
+  onOpenManualAdjustment?: (dayNumber: number) => void;
 }
 
 export const ForecastDayDetailSidePanel: React.FC<ForecastDayDetailSidePanelProps> = ({
@@ -45,6 +48,7 @@ export const ForecastDayDetailSidePanel: React.FC<ForecastDayDetailSidePanelProp
   corridors = [],
   onMobilizeReserveGang,
   onSelectShiftDay,
+  onOpenManualAdjustment,
 }) => {
   const [activeTab, setActiveTab] = useState<'TABLE' | 'CARDS' | 'STAFFING' | 'DRIVERS'>('TABLE');
   const [taskFilter, setTaskFilter] = useState<'ALL' | 'DEFICIT_ONLY' | 'ENGINEERING' | 'S&T' | 'TRACTION'>('ALL');
@@ -154,6 +158,12 @@ export const ForecastDayDetailSidePanel: React.FC<ForecastDayDetailSidePanelProp
               <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
                 {dayPoint.dayOfWeek} · {dayPoint.date}
               </span>
+              {dayPoint.isManualOverride && (
+                <span className="px-2.5 py-0.5 rounded bg-amber-900/70 text-amber-300 border border-amber-600/60 font-mono text-[10px] font-bold flex items-center gap-1">
+                  <SlidersHorizontal className="w-3 h-3 text-amber-400" />
+                  <span>PLANNER OVERRIDE</span>
+                </span>
+              )}
               {isDeficit ? (
                 <span
                   className={`px-2.5 py-0.5 rounded font-mono text-[10px] font-bold flex items-center gap-1 ${
@@ -188,17 +198,31 @@ export const ForecastDayDetailSidePanel: React.FC<ForecastDayDetailSidePanelProp
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
-            title="Close Panel (Esc)"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2">
+            {onOpenManualAdjustment && (
+              <button
+                type="button"
+                onClick={() => onOpenManualAdjustment(dayPoint.dayNumber)}
+                className="btn-manual-override-day flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-md border border-blue-400/40 transition-all active:scale-95"
+                title="Override forecast counts and trigger conflict recalculation"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Override Day</span>
+              </button>
+            )}
+
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              title="Close Panel (Esc)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* TOP METRICS SUMMARY BANNER */}
-        <div className="grid grid-cols-3 gap-3 p-4 bg-[#070c1b] border-b border-slate-800 text-xs">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-[#070c1b] border-b border-slate-800 text-xs">
           {/* Manpower Gauge */}
           <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div className="flex items-center justify-between text-slate-400 mb-1">
@@ -237,6 +261,33 @@ export const ForecastDayDetailSidePanel: React.FC<ForecastDayDetailSidePanelProp
               ) : (
                 <span className="text-emerald-400">Slots fully allocated</span>
               )}
+            </div>
+          </div>
+
+          {/* Cyclical Seasonality Prior Month Gauge */}
+          <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-slate-400 mb-1">
+              <span className="font-medium text-[11px]">Prior Month (MoM)</span>
+              <RotateCcw className="w-3.5 h-3.5 text-purple-400" />
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xl font-bold text-purple-300 font-mono">
+                {dayPoint.previousPeriodManpowerRequired || '—'}
+              </span>
+              <span className="text-slate-400 text-[11px] font-mono">
+                req ({dayPoint.previousPeriodDisplayDate || 'Prior Cycle'})
+              </span>
+            </div>
+            <div className="mt-2 text-[10px] font-mono flex items-center justify-between">
+              <span className="text-slate-400">Cyclical Delta:</span>
+              <span
+                className={`font-bold ${
+                  (dayPoint.seasonalityVariancePct || 0) >= 0 ? 'text-amber-400' : 'text-emerald-400'
+                }`}
+              >
+                {(dayPoint.seasonalityVariancePct || 0) >= 0 ? '+' : ''}
+                {dayPoint.seasonalityVariancePct}%
+              </span>
             </div>
           </div>
 
@@ -699,6 +750,25 @@ export const ForecastDayDetailSidePanel: React.FC<ForecastDayDetailSidePanelProp
                   Postponing this activity causes safety speed restriction (PSR) imposition.
                 </p>
               </div>
+
+              {/* Cyclical Seasonality Driver Card */}
+              {dayPoint.seasonalityDriver && (
+                <div className="p-4 rounded-xl bg-gradient-to-r from-purple-950/40 via-indigo-950/30 to-slate-900/90 border border-purple-800/70 space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-[10px] font-mono uppercase text-purple-300 font-bold flex items-center gap-1">
+                      <RotateCcw className="w-3 h-3 text-purple-400" />
+                      <span>Cyclical Seasonality Pattern (30-Day MoM Benchmark)</span>
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-purple-900/80 text-purple-200 border border-purple-600/80 font-mono text-[10px] font-semibold">
+                      Prior: {dayPoint.previousPeriodDisplayDate} ({dayPoint.previousPeriodDayOfWeek})
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-bold text-white">{dayPoint.seasonalityDriver}</h4>
+                  <p className="text-slate-300 text-xs leading-relaxed">
+                    Prior monthly cycle demanded <strong className="text-purple-300">{dayPoint.previousPeriodManpowerRequired} personnel</strong> versus current forecast of <strong className="text-sky-300">{dayPoint.manpowerRequired} personnel</strong> (a {(dayPoint.seasonalityVariancePct || 0) >= 0 ? '+' : ''}{dayPoint.seasonalityVariancePct}% cyclical variance). This highlights maintenance seasonality transitions between late-monsoon drainage / catenary moisture flashovers and dry-season mechanized tamping possession runs.
+                  </p>
+                </div>
+              )}
 
               {/* Recurring Defect Pattern Card */}
               <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">

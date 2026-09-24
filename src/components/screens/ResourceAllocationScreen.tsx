@@ -32,6 +32,7 @@ import {
   HeartPulse,
   Moon,
   TrendingDown,
+  TrendingUp,
   Download,
 } from 'lucide-react';
 import {
@@ -54,6 +55,9 @@ import {
   MachineryType,
   DeficitAlertThresholdSettings,
   DEFAULT_DEFICIT_ALERT_SETTINGS,
+  DailyForecastOverride,
+  ConflictRecalculationResult,
+  OptimizedBlock,
 } from '../../types';
 import {
   getMachineryResources,
@@ -71,9 +75,12 @@ import { ResourceGapAlertsSection } from './ResourceGapAlertsSection';
 import { MaintenanceResourceForecastModule } from './MaintenanceResourceForecastModule';
 import { DeficitAlertThresholdModal } from '../modals/DeficitAlertThresholdModal';
 import { ForecastedManpowerD3Chart } from './ForecastedManpowerD3Chart';
+import { ManualForecastAdjustmentModal } from '../forecast/ManualForecastAdjustmentModal';
 
 interface ResourceAllocationScreenProps {
   corridors: Corridor[];
+  blocks?: OptimizedBlock[];
+  onConflictRecalculated?: () => void;
   onNavigateToTimeline?: () => void;
   onNavigateToConflicts?: () => void;
   initialResourceType?: string;
@@ -88,6 +95,8 @@ type ActiveTab = 'MACHINERY' | 'MANPOWER' | 'FATIGUE' | 'FORECAST';
 
 export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> = ({
   corridors,
+  blocks = [],
+  onConflictRecalculated,
   onNavigateToTimeline,
   onNavigateToConflicts,
   initialResourceType,
@@ -140,6 +149,8 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
   const [selectedCorridorId, setSelectedCorridorId] = useState<string | null>(initialCorridorId || null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [fatigueSummary, setFatigueSummary] = useState(() => crewFatigueService.computeAnalysis());
+  // Predictive Linear Regression Trend Line on D3 Chart (Historical Maintenance Cycles)
+  const [showPredictiveTrendLine, setShowPredictiveTrendLine] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'warn' } | null>(
     initialResourceType
       ? { message: `Filtered view for resource type: "${initialResourceType}"`, type: 'info' }
@@ -196,6 +207,41 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
   // Real-time dynamic sync as planner modifies Manpower Deficit or Machinery Deficit input fields
   const handleLiveThresholdUpdate = (newSettings: DeficitAlertThresholdSettings) => {
     setThresholdSettings(newSettings);
+  };
+
+  // Manual Forecast Override Modal State
+  const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState<boolean>(false);
+  const [adjustmentDayNumber, setAdjustmentDayNumber] = useState<number>(1);
+  const [activeOverridesCount, setActiveOverridesCount] = useState<number>(() => resourceForecastService.getAllManualOverrides().length);
+  const [forecastVersion, setForecastVersion] = useState<number>(0);
+
+  // 30-Day Forecast dataset reactive to manual overrides & corridor filter
+  const current30DayForecast = useMemo(() => {
+    return resourceForecastService.computeForecast('BASELINE', 30, selectedCorridorId || 'ALL');
+  }, [selectedCorridorId, forecastVersion]);
+
+  const handleAdjustmentSaved = (result: ConflictRecalculationResult, override: DailyForecastOverride) => {
+    setActiveOverridesCount(resourceForecastService.getAllManualOverrides().length);
+    setForecastVersion((v) => v + 1);
+    setNotification({
+      message: `Conflict Engine Recalculated for Day ${result.dayNumber} (${result.displayDate}): ${result.affectedBlocksCount} block(s) evaluated. ${result.newConflictsGeneratedCount} conflict(s) flagged, ${result.conflictsResolvedCount} resolved.`,
+      type: result.netManpowerDeficit > 0 ? 'warn' : 'success',
+    });
+    if (onConflictRecalculated) {
+      onConflictRecalculated();
+    }
+  };
+
+  const handleAdjustmentReset = (dayNumber: number) => {
+    setActiveOverridesCount(resourceForecastService.getAllManualOverrides().length);
+    setForecastVersion((v) => v + 1);
+    setNotification({
+      message: `Forecast override reset to baseline for Day ${dayNumber}. Conflict flags cleared.`,
+      type: 'info',
+    });
+    if (onConflictRecalculated) {
+      onConflictRecalculated();
+    }
   };
 
   // Reallocation Modal state
@@ -594,6 +640,25 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
               </span>
             </button>
 
+            {/* Manual Forecast Override & Conflict Recalculation Form Trigger */}
+            <button
+              id="btn-manual-forecast-override-trigger"
+              onClick={() => {
+                setAdjustmentDayNumber(1);
+                setIsAdjustmentModalOpen(true);
+              }}
+              className="px-3.5 py-2 rounded-lg bg-blue-950/80 hover:bg-blue-900 text-blue-200 hover:text-white text-xs font-semibold border border-blue-600/80 flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-blue-950/40"
+              title="Manually override daily forecast counts to simulate directives and trigger Conflict Engine recalculation"
+            >
+              <SlidersHorizontal className="w-4 h-4 text-blue-400" />
+              <span>Manual Forecast Override</span>
+              {activeOverridesCount > 0 && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 font-bold font-mono">
+                  {activeOverridesCount} Active
+                </span>
+              )}
+            </button>
+
             {/* Custom Deficit Alert Thresholds Trigger */}
             <button
               id="btn-alert-thresholds-modal-trigger"
@@ -850,6 +915,87 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
         onOpenThresholdModal={() => setIsThresholdModalOpen(true)}
       />
 
+      {/* PREDICTIVE LINEAR REGRESSION TREND LINE CONTROL PANEL & CHECKBOX */}
+      <div
+        id="predictive-linear-regression-control-panel"
+        className="bg-gradient-to-r from-[#0d1430] via-[#10193e] to-[#0a1024] p-4 rounded-xl border border-indigo-900/70 shadow-lg space-y-2.5 transition-all"
+      >
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-lg bg-indigo-950/90 border border-indigo-700/80 text-indigo-400 shrink-0 mt-0.5 shadow-inner">
+              <TrendingUp className="w-5 h-5 text-indigo-400" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-3 flex-wrap">
+                <label
+                  htmlFor="checkbox-enable-predictive-linear-regression"
+                  className="flex items-center gap-2.5 cursor-pointer select-none group"
+                >
+                  <input
+                    type="checkbox"
+                    id="checkbox-enable-predictive-linear-regression"
+                    name="enablePredictiveLinearRegression"
+                    checked={showPredictiveTrendLine}
+                    onChange={(e) => setShowPredictiveTrendLine(e.target.checked)}
+                    className="w-4 h-4 rounded text-indigo-600 bg-slate-900 border-indigo-600/80 focus:ring-indigo-500 focus:ring-offset-slate-950 cursor-pointer accent-indigo-500"
+                  />
+                  <span className="text-sm font-bold text-slate-100 font-mono tracking-wide group-hover:text-indigo-300 transition-colors">
+                    Enable Predictive Linear Regression Trend Line on D3 Chart
+                  </span>
+                </label>
+
+                <span
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex items-center gap-1 transition-all ${
+                    showPredictiveTrendLine
+                      ? 'bg-indigo-950 text-indigo-300 border border-indigo-500/80 shadow-sm shadow-indigo-950/60'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${showPredictiveTrendLine ? 'bg-indigo-400 animate-pulse' : 'bg-slate-500'}`} />
+                  <span>{showPredictiveTrendLine ? 'Forecast Regression Active' : 'Regression Inactive'}</span>
+                </span>
+
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800">
+                  30-Day Historical Maintenance Cycles
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-300 font-sans leading-relaxed">
+                Applies Ordinary Least Squares (OLS) linear regression onto the 30-day D3 resource allocation chart to reveal long-range demand slope, calibrated against recurring maintenance cycles (50 GMT track renewal, 28D USFD railhead flaw waves, and 21D catenary thermal inspections).
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start md:self-auto shrink-0 flex-wrap">
+            {showPredictiveTrendLine ? (
+              <div className="flex items-center gap-2 bg-[#080d22] px-3 py-1.5 rounded-lg border border-indigo-800/60 text-xs font-mono">
+                <span className="text-indigo-300 font-semibold">OLS Model: Active</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-slate-400">95% Prediction Band</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPredictiveTrendLine(false)}
+                  className="ml-1 text-slate-400 hover:text-rose-400 text-xs cursor-pointer"
+                  title="Disable trend line"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                id="btn-quick-enable-predictive-trend"
+                onClick={() => setShowPredictiveTrendLine(true)}
+                className="px-3 py-1.5 rounded-lg bg-indigo-950/70 hover:bg-indigo-900 border border-indigo-700/80 text-indigo-300 hover:text-white text-xs font-mono transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Show Trend Line</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* D3.JS 30-DAY FORECASTED MANPOWER DEMAND VS CURRENT STAFFING LINE CHART */}
       <ForecastedManpowerD3Chart
         corridors={corridors}
@@ -863,6 +1009,13 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
         thresholdSettings={thresholdSettings}
         onOpenThresholdModal={() => setIsThresholdModalOpen(true)}
         onExportCsv={handleExport30DayForecastCsv}
+        onOpenManualAdjustment={(dayNum) => {
+          if (dayNum) setAdjustmentDayNumber(dayNum);
+          setIsAdjustmentModalOpen(true);
+        }}
+        overrideCount={activeOverridesCount}
+        showPredictiveTrendLine={showPredictiveTrendLine}
+        onTogglePredictiveTrendLine={setShowPredictiveTrendLine}
       />
 
       {/* CORE VISUALIZATION: STACKABLE BAR CHART FOR CAPACITY PLANNING */}
@@ -1782,6 +1935,19 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
         onSaveSettings={handleSaveThresholdSettings}
         onLiveUpdate={handleLiveThresholdUpdate}
         corridors={corridors}
+      />
+
+      {/* MANUAL FORECAST OVERRIDE & CONFLICT RECALCULATION MODAL */}
+      <ManualForecastAdjustmentModal
+        isOpen={isAdjustmentModalOpen}
+        onClose={() => setIsAdjustmentModalOpen(false)}
+        dailyForecast={current30DayForecast.dailyForecast}
+        initialDayNumber={adjustmentDayNumber}
+        blocks={blocks}
+        corridors={corridors}
+        onAdjustmentSaved={handleAdjustmentSaved}
+        onAdjustmentReset={handleAdjustmentReset}
+        onNavigateToConflicts={onNavigateToConflicts}
       />
     </div>
   );

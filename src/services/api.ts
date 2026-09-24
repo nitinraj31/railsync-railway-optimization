@@ -26,6 +26,8 @@ import {
   AiScheduleOffsetProposal,
   AiOffsetResponse,
   AiCorridorAvailabilitySummary,
+  DailyForecastOverride,
+  ConflictRecalculationResult,
 } from '../types';
 import {
   INITIAL_ASSETS,
@@ -776,6 +778,224 @@ class RailSyncStore {
     );
   }
 
+  public recalculateConflictsForForecastAdjustment(
+    override: DailyForecastOverride,
+    dayPoint: {
+      dayNumber: number;
+      date: string;
+      displayDate: string;
+      manpowerRequired: number;
+      manpowerAvailable: number;
+      manpowerDeficit: number;
+      machinerySlotsRequired: number;
+      machinerySlotsAvailable: number;
+      machineryDeficit: number;
+      targetCorridorId: string;
+    }
+  ): ConflictRecalculationResult {
+    const startTime = Date.now();
+    const day = override.dayNumber;
+    const targetCid = override.corridorId && override.corridorId !== 'ALL' ? override.corridorId : (dayPoint.targetCorridorId || 'C001');
+    const displayDate = dayPoint.displayDate;
+    const reqManpower = dayPoint.manpowerRequired;
+    const availManpower = dayPoint.manpowerAvailable;
+    const deficit = dayPoint.manpowerDeficit;
+    const machineDeficit = dayPoint.machineryDeficit;
+
+    let candidateBlocks = this.optimizedBlocks.filter((b) => {
+      if (targetCid === 'ALL') return true;
+      return b.corridorId === targetCid;
+    });
+    if (candidateBlocks.length === 0) {
+      candidateBlocks = this.optimizedBlocks;
+    }
+
+    const affectedBlocks: OptimizedBlock[] = [];
+    const affectedBlockIds: string[] = [];
+    let newConflictsGenerated = 0;
+    let conflictsResolved = 0;
+    const notes: string[] = [];
+
+    const prefix = `CONF-RES-D${day}-`;
+
+    if (deficit > 0 || machineDeficit > 0) {
+      // DEFICIT CREATED OR ESCALATED
+      const count = Math.max(1, Math.min(candidateBlocks.length, Math.ceil(deficit / 16) || 1));
+      const targetBlocks = candidateBlocks.slice(0, count);
+
+      targetBlocks.forEach((block) => {
+        const conflictId = `${prefix}${block.blockId}`;
+        let existing = this.conflicts.find((c) => c.conflictId === conflictId);
+
+        const desc = `Resource Contention Hazard: Day ${day} (${displayDate}) manual forecast override requires ${reqManpower} staff & ${dayPoint.machinerySlotsRequired} machine slots on Corridor ${block.corridorId}. Critical deficit of -${deficit} manpower and -${machineDeficit} machinery slots breaches minimum gang quota. Block ${block.blockId} cannot be safely manned simultaneously. Planner Directive: "${override.adjustmentReason}".`;
+
+        if (existing) {
+          existing.status = 'OPEN';
+          existing.severity = deficit > 25 ? 'CRITICAL' : 'HIGH';
+          existing.description = desc;
+          existing.resolvedAt = undefined;
+          existing.alternativeAppliedSlot = undefined;
+        } else {
+          const newConflict: Conflict = {
+            conflictId,
+            blockId: block.blockId,
+            trainNumber: 'RES-HEADCOUNT-DEFICIT',
+            trainName: `Resource Deficit (${displayDate} -${deficit} Gang Headcount)`,
+            taskId: block.taskId,
+            assetId: block.assetId,
+            corridorId: block.corridorId,
+            department: block.department,
+            conflictType: 'RESOURCE_CONTENTION',
+            severity: deficit > 25 ? 'CRITICAL' : 'HIGH',
+            description: desc,
+            status: 'OPEN',
+            maintenanceInterval: `${block.startTime}–${block.endTime}`,
+            trainInterval: 'N/A (Crew Contention Hazard)',
+          };
+          this.conflicts.unshift(newConflict);
+          newConflictsGenerated++;
+        }
+
+        block.hasConflict = true;
+        block.status = 'CONFLICT_FLAGGED';
+        block.validationStatus = 'INVALID';
+        block.conflictId = conflictId;
+        block.explainability = {
+          ...block.explainability,
+          whyThisSlot: [
+            `Conflict Engine Flagged: Manual forecast override on Day ${day} (${displayDate}) creates severe gang shortage (-${deficit} staff).`,
+            `Mandated requirement: ${reqManpower} personnel vs ${availManpower} available on Corridor ${block.corridorId}.`,
+            `Operational rationale: ${override.adjustmentReason}`,
+            `Action Required: Reschedule block window, mobilize auxiliary depot gang, or reallocate capacity.`,
+          ],
+          optimizationFactors: {
+            ...block.explainability.optimizationFactors,
+            corridorAvailability: `CONSTRAINED (-${deficit} gang deficit)`,
+            constraintCompatibility: 'VIOLATED (RDSO Gang Staffing Ceiling)',
+          },
+        };
+
+        affectedBlocks.push(block);
+        affectedBlockIds.push(block.blockId);
+      });
+
+      notes.push(
+        `Conflict engine identified -${deficit} manpower deficit and -${machineDeficit} machinery slot deficit on Corridor ${targetCid}. Flagged ${affectedBlocks.length} block(s) with RESOURCE_CONTENTION.`
+      );
+    } else {
+      // SURPLUS OR BALANCED: Resolve any active resource conflicts for this day/corridor
+      const existingToResolve = this.conflicts.filter(
+        (c) => c.conflictId.startsWith(prefix) || (c.conflictType === 'RESOURCE_CONTENTION' && (c.corridorId === targetCid || targetCid === 'ALL'))
+      );
+
+      existingToResolve.forEach((c) => {
+        if (c.status === 'OPEN') {
+          c.status = 'RESOLVED';
+          c.resolvedAt = new Date().toISOString();
+          c.resolutionNotes = `Resolved via Planner Manual Forecast Adjustment on Day ${day} (${displayDate}): Resource capacity re-verified with 0 deficit (${availManpower} available for ${reqManpower} required). Surplus buffer: +${availManpower - reqManpower} staff. Rationale: ${override.adjustmentReason}`;
+          conflictsResolved++;
+
+          const block = this.optimizedBlocks.find((b) => b.blockId === c.blockId);
+          if (block) {
+            const hasOtherOpenConflicts = this.conflicts.some(
+              (other) => other.blockId === block.blockId && other.conflictId !== c.conflictId && other.status === 'OPEN'
+            );
+            if (!hasOtherOpenConflicts) {
+              block.hasConflict = false;
+              block.status = 'SCHEDULED';
+              block.validationStatus = 'VALID';
+              block.conflictId = undefined;
+              block.explainability = {
+                ...block.explainability,
+                whyThisSlot: [
+                  `Conflict Engine Cleared: Manual forecast adjustment verified resource sufficiency (+${availManpower - reqManpower} surplus buffer).`,
+                  `Headway separation: Clear of passenger traffic.`,
+                  `Certified for execution under ${override.shift}.`,
+                ],
+                optimizationFactors: {
+                  ...block.explainability.optimizationFactors,
+                  corridorAvailability: '100% CLEAR - Resource Capacity Verified',
+                },
+              };
+            }
+            affectedBlocks.push(block);
+            affectedBlockIds.push(block.blockId);
+          }
+        }
+      });
+
+      notes.push(
+        `Conflict engine verified adequate resource coverage (+${availManpower - reqManpower} surplus buffer). Resolved ${conflictsResolved} resource contention conflict(s).`
+      );
+    }
+
+    this.persist(STORAGE_KEYS.CONFLICTS, this.conflicts);
+    this.persist(STORAGE_KEYS.OPTIMIZED_BLOCKS, this.optimizedBlocks);
+
+    this.addAuditLogEntry(
+      override.plannerName || this.currentUser?.name || 'Railway Planner',
+      'RAILWAY_PLANNER',
+      'Manual Forecast Adjustment & Conflict Engine Recalculation',
+      `Day ${day} (${displayDate}) — Corridor ${targetCid}`,
+      'SUCCESS',
+      `Manpower: ${reqManpower} (Deficit: ${deficit}). Generated: ${newConflictsGenerated}, Resolved: ${conflictsResolved} across ${affectedBlocks.length} block(s).`
+    );
+
+    const duration = Date.now() - startTime;
+    const activeCount = this.conflicts.filter((c) => c.status === 'OPEN').length;
+
+    return {
+      success: true,
+      recalculatedAt: new Date().toISOString(),
+      dayNumber: day,
+      date: dayPoint.date,
+      displayDate,
+      targetCorridorId: targetCid,
+      affectedBlocksCount: affectedBlocks.length,
+      affectedBlockIds,
+      affectedBlocks,
+      newConflictsGeneratedCount: newConflictsGenerated,
+      conflictsResolvedCount: conflictsResolved,
+      totalActiveConflicts: activeCount,
+      netManpowerDeficit: deficit,
+      netMachineryDeficit: machineDeficit,
+      auditMessage: `Recalculated for Day ${day} (${displayDate}): ${affectedBlocks.length} block(s) evaluated.`,
+      recalculationNotes: notes,
+      executionTimeMs: duration,
+    };
+  }
+
+  public resetForecastAdjustment(dayNumber: number): { success: boolean; resolvedCount: number } {
+    const prefix = `CONF-RES-D${dayNumber}-`;
+    let resolvedCount = 0;
+
+    this.conflicts.forEach((c) => {
+      if (c.conflictId.startsWith(prefix) && c.status === 'OPEN') {
+        c.status = 'RESOLVED';
+        c.resolvedAt = new Date().toISOString();
+        c.resolutionNotes = `Cleared via Forecast Override Reset for Day ${dayNumber}.`;
+        resolvedCount++;
+
+        const block = this.optimizedBlocks.find((b) => b.blockId === c.blockId);
+        if (block) {
+          const hasOther = this.conflicts.some(
+            (other) => other.blockId === block.blockId && other.conflictId !== c.conflictId && other.status === 'OPEN'
+          );
+          if (!hasOther) {
+            block.hasConflict = false;
+            block.status = 'SCHEDULED';
+            block.validationStatus = 'VALID';
+            block.conflictId = undefined;
+          }
+        }
+      }
+    });
+
+    this.persist(STORAGE_KEYS.CONFLICTS, this.conflicts);
+    this.persist(STORAGE_KEYS.OPTIMIZED_BLOCKS, this.optimizedBlocks);
+    return { success: true, resolvedCount };
+  }
+
   public triggerAiPlanning(): { blocks: OptimizedBlock[]; newBlocksCount: number } {
     // Incorporate any newly submitted pending requests into the block plan
     const pendingReqs = this.blockRequests.filter((r) => r.status === 'PENDING' || r.status === 'UNDER_REVIEW');
@@ -1446,6 +1666,20 @@ function handleMockRequest<T>(endpoint: string, options: RequestInit = {}): Prom
         return;
       }
 
+      if (cleanEndpoint === '/api/conflicts/recalculate-forecast-override') {
+        const body = JSON.parse(options.body as string);
+        const res = mockStore.recalculateConflictsForForecastAdjustment(body.override, body.dayPoint);
+        resolve(res as unknown as T);
+        return;
+      }
+
+      if (cleanEndpoint === '/api/conflicts/reset-forecast-override') {
+        const body = JSON.parse(options.body as string);
+        const res = mockStore.resetForecastAdjustment(body.dayNumber);
+        resolve(res as unknown as T);
+        return;
+      }
+
       if (cleanEndpoint === '/api/tasks') {
         resolve(mockStore.getMaintenanceTasks() as unknown as T);
         return;
@@ -1618,6 +1852,36 @@ export async function resolveConflict(
 
 export async function resolveAllConflicts(): Promise<{ success: boolean }> {
   return apiRequest<{ success: boolean }>('/api/conflicts/resolve-all', { method: 'POST' });
+}
+
+export async function recalculateConflictsForForecastAdjustment(
+  override: DailyForecastOverride,
+  dayPoint: {
+    dayNumber: number;
+    date: string;
+    displayDate: string;
+    manpowerRequired: number;
+    manpowerAvailable: number;
+    manpowerDeficit: number;
+    machinerySlotsRequired: number;
+    machinerySlotsAvailable: number;
+    machineryDeficit: number;
+    targetCorridorId: string;
+  }
+): Promise<ConflictRecalculationResult> {
+  return apiRequest<ConflictRecalculationResult>('/api/conflicts/recalculate-forecast-override', {
+    method: 'POST',
+    body: JSON.stringify({ override, dayPoint }),
+  });
+}
+
+export async function resetForecastAdjustment(
+  dayNumber: number
+): Promise<{ success: boolean; resolvedCount: number }> {
+  return apiRequest<{ success: boolean; resolvedCount: number }>('/api/conflicts/reset-forecast-override', {
+    method: 'POST',
+    body: JSON.stringify({ dayNumber }),
+  });
 }
 
 export async function runValidation(): Promise<ValidationResult> {

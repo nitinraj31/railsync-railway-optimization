@@ -1049,6 +1049,65 @@ export interface DailyForecastPoint {
   previousPeriodManpowerRequired?: number;
   seasonalityVariancePct?: number;
   seasonalityDriver?: string;
+
+  // Manual Forecast Override by Planner
+  isManualOverride?: boolean;
+  overrideDetails?: DailyForecastOverride;
+}
+
+export interface DailyForecastOverride {
+  overrideId: string;
+  dayNumber: number; // 1 to 30
+  date: string; // "2026-09-21"
+  displayDate: string; // "Sep 21"
+  corridorId: string; // 'ALL' or 'C001' | 'C002' | 'C003' | 'C004'
+  shift: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
+
+  // Override Counts
+  overrideManpowerRequired?: number;
+  overrideManpowerAvailable?: number;
+  overrideMachinerySlotsRequired?: number;
+  overrideMachinerySlotsAvailable?: number;
+
+  // Detailed Trade Breakdown Overrides (optional)
+  overrideTrackmenRequired?: number;
+  overrideSignalTechsRequired?: number;
+  overrideOheLinesmenRequired?: number;
+  overrideSafetyLookoutsRequired?: number;
+
+  // Machine Class Overrides (optional)
+  overrideTampersRequired?: number;
+  overrideBallastRegulatorsRequired?: number;
+  overrideStabilizersRequired?: number;
+  overrideTowerWagonsRequired?: number;
+  overrideUsfdCarsRequired?: number;
+
+  // Operational Metadata
+  adjustmentReason: string;
+  plannerName: string;
+  adjustedAt: string;
+  notes?: string;
+  impactSeverity?: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+}
+
+export interface ConflictRecalculationResult {
+  success: boolean;
+  recalculatedAt: string;
+  dayNumber: number;
+  date: string;
+  displayDate: string;
+  targetCorridorId: string;
+  affectedBlocksCount: number;
+  affectedBlockIds: string[];
+  affectedBlocks: OptimizedBlock[];
+  newConflictsGeneratedCount: number;
+  conflictsResolvedCount: number;
+  totalActiveConflicts: number;
+  netManpowerDeficit: number;
+  netMachineryDeficit: number;
+  auditMessage: string;
+  recalculationNotes: string[];
+  executionTimeMs: number;
 }
 
 export interface AgingAssetLifecycleForecast {
@@ -1183,5 +1242,17 @@ export const DEFAULT_DEFICIT_ALERT_SETTINGS: DeficitAlertThresholdSettings = {
   targetCorridorOverride: 'ALL',
   presetName: 'IRTMM_STANDARD',
 };
+
+export type {
+  CorridorSegment,
+  SegmentDailyIntensity,
+  PeakDemandCluster,
+} from '../services/corridorSegmentHeatmapService';
+
+export type {
+  HistoricalMaintenanceCycleDriver,
+  PredictiveTrendPoint,
+  PredictiveLinearRegressionResult,
+} from '../services/predictiveLinearRegressionService';
 
 
