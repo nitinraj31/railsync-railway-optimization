@@ -386,6 +386,56 @@ class RailSyncStore {
     return { success: true, gang, message: `Successfully transferred ${gang.name} to ${targetCorridorId}.` };
   }
 
+  public updateGangShift(
+    gangId: string,
+    newShift: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK',
+    reason?: string
+  ): { success: boolean; gang?: ManpowerGang; message: string } {
+    const gang = this.manpowerGangs.find((g) => g.id === gangId);
+    if (!gang) {
+      return { success: false, message: `Maintenance gang ${gangId} not found.` };
+    }
+    const prevShift = gang.shift;
+    gang.shift = newShift;
+    this.persist(STORAGE_KEYS.MANPOWER_GANGS, this.manpowerGangs);
+
+    this.addAuditLogEntry(
+      this.currentUser?.name || 'Chief Block Coordinator',
+      this.currentUser?.role || 'RAILWAY_PLANNER',
+      'Gang Shift Optimization',
+      `${gang.name} (${gang.id})`,
+      'SUCCESS',
+      `Shift reallocated from ${prevShift} to ${newShift}. Rationale: ${reason || 'Workload peak redistribution'}`
+    );
+
+    return { success: true, gang, message: `Updated ${gang.name} shift to ${newShift}.` };
+  }
+
+  public batchUpdateGangShifts(
+    updates: Array<{ gangId: string; newShift: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK'; reason?: string }>
+  ): { success: boolean; updatedCount: number; message: string } {
+    let count = 0;
+    updates.forEach((u) => {
+      const gang = this.manpowerGangs.find((g) => g.id === u.gangId);
+      if (gang) {
+        gang.shift = u.newShift;
+        count++;
+      }
+    });
+    this.persist(STORAGE_KEYS.MANPOWER_GANGS, this.manpowerGangs);
+
+    this.addAuditLogEntry(
+      this.currentUser?.name || 'Chief Block Coordinator',
+      this.currentUser?.role || 'RAILWAY_PLANNER',
+      'Conflict-Aware Gang Shift Redistribution',
+      `${count} Gang Rosters Rebalanced`,
+      'SUCCESS',
+      `Applied conflict-aware shift redistribution to ${count} maintenance gangs based on corridor workload peaks.`
+    );
+
+    return { success: true, updatedCount: count, message: `Optimized shifts applied to ${count} maintenance gangs.` };
+  }
+
   public autoBalanceCorridors(): { success: boolean; message: string; actionsCount: number } {
     // Mobilize standby units from CENTRAL_DEPOT to corridors with highest deficit / workload (C003 & C004)
     let actions = 0;
@@ -2029,6 +2079,20 @@ export async function reallocateGang(
   notes?: string
 ): Promise<{ success: boolean; gang?: ManpowerGang; message: string }> {
   return mockStore.reallocateGang(gangId, targetCorridorId, notes);
+}
+
+export async function updateGangShift(
+  gangId: string,
+  newShift: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK',
+  reason?: string
+): Promise<{ success: boolean; gang?: ManpowerGang; message: string }> {
+  return mockStore.updateGangShift(gangId, newShift, reason);
+}
+
+export async function batchUpdateGangShifts(
+  updates: Array<{ gangId: string; newShift: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK'; reason?: string }>
+): Promise<{ success: boolean; updatedCount: number; message: string }> {
+  return mockStore.batchUpdateGangShifts(updates);
 }
 
 export async function autoBalanceCorridors(): Promise<{ success: boolean; message: string; actionsCount: number }> {

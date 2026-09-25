@@ -34,6 +34,8 @@ import {
   TrendingDown,
   TrendingUp,
   Download,
+  Sun,
+  Sunrise,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -58,6 +60,7 @@ import {
   DailyForecastOverride,
   ConflictRecalculationResult,
   OptimizedBlock,
+  Conflict,
 } from '../../types';
 import {
   getMachineryResources,
@@ -67,9 +70,15 @@ import {
   reallocateGang,
   autoBalanceCorridors,
   resetResourceFleet,
+  batchUpdateGangShifts,
 } from '../../services/api';
 import { crewFatigueService } from '../../services/crewFatigueService';
 import { resourceForecastService } from '../../services/resourceForecastService';
+import {
+  shiftOptimizationService,
+  ShiftOptimizationResult,
+  GangShiftRecommendation,
+} from '../../services/shiftOptimizationService';
 import { CrewFatiguePredictorModule } from './CrewFatiguePredictorModule';
 import { ResourceGapAlertsSection } from './ResourceGapAlertsSection';
 import { MaintenanceResourceForecastModule } from './MaintenanceResourceForecastModule';
@@ -79,10 +88,12 @@ import { ManualForecastAdjustmentModal } from '../forecast/ManualForecastAdjustm
 import { downloadCapacityAnalysisPdf } from '../../services/capacityAnalysisPdfService';
 import { predictiveLinearRegressionService } from '../../services/predictiveLinearRegressionService';
 import { DynamicResourceLegend } from './DynamicResourceLegend';
+import { OptimizedShiftModal } from '../modals/OptimizedShiftModal';
 
 interface ResourceAllocationScreenProps {
   corridors: Corridor[];
   blocks?: OptimizedBlock[];
+  conflicts?: Conflict[];
   onConflictRecalculated?: () => void;
   onNavigateToTimeline?: () => void;
   onNavigateToConflicts?: () => void;
@@ -99,6 +110,7 @@ type ActiveTab = 'MACHINERY' | 'MANPOWER' | 'FATIGUE' | 'FORECAST';
 export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> = ({
   corridors,
   blocks = [],
+  conflicts = [],
   onConflictRecalculated,
   onNavigateToTimeline,
   onNavigateToConflicts,
@@ -255,6 +267,61 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
   const [selectedResourceId, setSelectedResourceId] = useState<string>('');
   const [targetCorridorId, setTargetCorridorId] = useState<string>('C001');
   const [reallocationReason, setReallocationReason] = useState<string>('Capacity rebalancing for upcoming block');
+
+  // Conflict-Aware Shift Optimization State
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState<boolean>(false);
+  const [shiftOptimizationResult, setShiftOptimizationResult] = useState<ShiftOptimizationResult | null>(null);
+  const [isCalculatingShiftOptimization, setIsCalculatingShiftOptimization] = useState<boolean>(false);
+
+  const handleSuggestOptimizedShift = () => {
+    setIsCalculatingShiftOptimization(true);
+    try {
+      const scope = filterCorridor !== 'ALL' && filterCorridor !== 'CENTRAL_DEPOT' ? filterCorridor : 'ALL';
+      const result = shiftOptimizationService.calculateShiftOptimization(
+        gangs,
+        corridors,
+        blocks,
+        conflicts,
+        scope
+      );
+      setShiftOptimizationResult(result);
+      setIsShiftModalOpen(true);
+    } catch (err) {
+      console.error('Failed to calculate optimized shift redistribution:', err);
+      showToast('Failed to calculate shift redistribution', 'warn');
+    } finally {
+      setIsCalculatingShiftOptimization(false);
+    }
+  };
+
+  const handleApplyShiftRecommendations = async (selectedRecs: GangShiftRecommendation[]) => {
+    setIsLoading(true);
+    try {
+      const updates = selectedRecs.map((r) => ({
+        gangId: r.gangId,
+        newShift: r.recommendedShift,
+        reason: `${r.workloadPeakDriver} | ${r.conflictsAvoidedDescription}`,
+      }));
+      const res = await batchUpdateGangShifts(updates);
+      if (res.success) {
+        await reloadData();
+        setIsShiftModalOpen(false);
+        showToast(
+          `Shift redistribution applied: Rebalanced ${res.updatedCount} maintenance gang(s) across Day, Afternoon, and Night Mega Block shifts.`,
+          'success'
+        );
+        setNotification({
+          message: `Conflict-Aware Engine rebalanced ${res.updatedCount} maintenance gang(s) to match nocturnal workload peaks and avoid passenger train conflicts.`,
+          type: 'success',
+        });
+      }
+    } catch (err) {
+      console.error('Failed to apply shift redistribution:', err);
+      showToast('Failed to apply shift redistribution', 'warn');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Load data on mount & shift change
   const reloadData = async () => {
@@ -648,6 +715,35 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
         return 'Dynamic Track Stabilizer (DTS)';
       default:
         return type;
+    }
+  };
+
+  // Gang shift badge helper
+  const getShiftBadge = (shift: ShiftType) => {
+    switch (shift) {
+      case 'DAY_SHIFT':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-amber-950/70 border border-amber-800/80 text-amber-300">
+            <Sun className="w-3 h-3 text-amber-400" />
+            <span>DAY (08:00–16:00)</span>
+          </span>
+        );
+      case 'AFTERNOON_SHIFT':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-sky-950/70 border border-sky-800/80 text-sky-300">
+            <Sunrise className="w-3 h-3 text-sky-400" />
+            <span>AFTERNOON (14:00–22:00)</span>
+          </span>
+        );
+      case 'NIGHT_MEGA_BLOCK':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-purple-950/80 border border-purple-700/80 text-purple-300 shadow-sm shadow-purple-950/40">
+            <Moon className="w-3 h-3 text-purple-400" />
+            <span>NIGHT MEGA BLOCK (23:00–06:00)</span>
+          </span>
+        );
+      default:
+        return null;
     }
   };
 
@@ -1708,8 +1804,67 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
               <option value="C004">C004 - Eastern Express Link</option>
               <option value="CENTRAL_DEPOT">Central Depot Standby Reserve</option>
             </select>
+
+            {/* Suggest Optimized Shift Button in Manpower Tab Toolbar */}
+            {activeTab === 'MANPOWER' && (
+              <button
+                id="btn-suggest-optimized-shift-top"
+                type="button"
+                onClick={handleSuggestOptimizedShift}
+                disabled={isCalculatingShiftOptimization}
+                className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-sky-600 via-indigo-600 to-purple-600 hover:from-sky-500 hover:to-purple-500 text-white font-mono font-bold text-xs shadow-md shadow-sky-950 flex items-center gap-2 transition-all cursor-pointer border border-sky-400/40 group shrink-0 disabled:opacity-50"
+                title="Calculate and display recommended gang shift redistribution based on current workload peaks"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-sky-200 animate-pulse group-hover:rotate-12 transition-transform" />
+                <span>Suggest Optimized Shift</span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-950/90 text-sky-200 border border-sky-400/50 uppercase font-semibold">
+                  Conflict-Aware Engine
+                </span>
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Manpower Tab Contextual Action Banner */}
+        {activeTab === 'MANPOWER' && (
+          <div className="px-4 py-3 bg-gradient-to-r from-[#0d1733] via-[#101b40] to-[#090f22] border-b border-sky-900/60 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-sky-950 border border-sky-700/80 text-sky-400 shrink-0 shadow-inner">
+                <Users className="w-4 h-4" />
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono font-bold text-slate-100 text-xs uppercase tracking-wide">
+                    Maintenance Gang Shift Rosters & Workload Matrix
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800">
+                    {filteredGangs.length} Units Active
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
+                    3-Tier Shift Framework
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 font-sans">
+                  Current roster balance across Day (08:00–16:00), Afternoon (14:00–22:00), and Night Mega Block (23:00–06:00) with statutory IRTMM safety coverage.
+                </div>
+              </div>
+            </div>
+
+            <button
+              id="btn-suggest-optimized-shift-banner"
+              type="button"
+              onClick={handleSuggestOptimizedShift}
+              disabled={isCalculatingShiftOptimization}
+              className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-sky-600 via-indigo-600 to-purple-600 hover:from-sky-500 hover:to-purple-500 text-white font-mono font-bold text-xs shadow-md shadow-sky-950 flex items-center gap-2 transition-all cursor-pointer border border-sky-400/40 group shrink-0 disabled:opacity-50"
+            >
+              <Sparkles className="w-4 h-4 text-sky-200 animate-pulse group-hover:rotate-12 transition-transform" />
+              <span>Suggest Optimized Shift</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-950/90 text-sky-200 border border-sky-400/50 uppercase font-semibold">
+                AI Optimization
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Table / Module Content */}
         {activeTab === 'FORECAST' ? (
@@ -1833,6 +1988,7 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
                   <th className="p-3">Gang ID & Unit Name</th>
                   <th className="p-3">Department & Trade</th>
                   <th className="p-3">Headcount</th>
+                  <th className="p-3">Assigned Shift</th>
                   <th className="p-3">Corridor & Section</th>
                   <th className="p-3">Supervisor In-Charge</th>
                   <th className="p-3">Equipment Inventory</th>
@@ -1842,7 +1998,7 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
               <tbody className="divide-y divide-slate-800/60 font-mono">
                 {filteredGangs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500 text-xs">
+                    <td colSpan={8} className="p-8 text-center text-slate-500 text-xs">
                       No maintenance gangs found matching the selected filters.
                     </td>
                   </tr>
@@ -1875,6 +2031,10 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
                         <td className="p-3">
                           <div className="text-sm font-bold text-slate-100">{g.headcount}</div>
                           <div className="text-[10px] text-slate-400">Personnel</div>
+                        </td>
+
+                        <td className="p-3">
+                          {getShiftBadge(g.shift || 'DAY_SHIFT')}
                         </td>
 
                         <td className="p-3">
@@ -2103,6 +2263,17 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
         onAdjustmentReset={handleAdjustmentReset}
         onNavigateToConflicts={onNavigateToConflicts}
       />
+
+      {/* CONFLICT-AWARE GANG SHIFT OPTIMIZATION MODAL */}
+      {shiftOptimizationResult && (
+        <OptimizedShiftModal
+          isOpen={isShiftModalOpen}
+          onClose={() => setIsShiftModalOpen(false)}
+          result={shiftOptimizationResult}
+          onApplyShifts={handleApplyShiftRecommendations}
+          isLoading={isLoading}
+        />
+      )}
     </div>
   );
 };
