@@ -27,6 +27,8 @@ import {
   Grid,
   MapPin,
   Target,
+  Wrench,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   Corridor,
@@ -48,6 +50,12 @@ import {
   PredictiveLinearRegressionResult,
   PredictiveTrendPoint,
 } from '../../services/predictiveLinearRegressionService';
+import {
+  predictiveAlertsService,
+  PredictiveCapacityAlert,
+  PredictiveAlertsSummary,
+} from '../../services/predictiveAlertsService';
+import { downloadCapacityAnalysisPdf } from '../../services/capacityAnalysisPdfService';
 import { ForecastDayDetailSidePanel } from './ForecastDayDetailSidePanel';
 import { DailyResourceStrainHeatmap } from './DailyResourceStrainHeatmap';
 
@@ -64,6 +72,9 @@ interface ForecastedManpowerD3ChartProps {
   overrideCount?: number;
   showPredictiveTrendLine?: boolean;
   onTogglePredictiveTrendLine?: (show: boolean) => void;
+  enableAiPredictiveAlerts?: boolean;
+  onToggleAiPredictiveAlerts?: (enable: boolean) => void;
+  onDownloadCapacityAnalysisPdf?: () => void;
 }
 
 export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps> = ({
@@ -79,6 +90,9 @@ export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps>
   overrideCount = 0,
   showPredictiveTrendLine,
   onTogglePredictiveTrendLine,
+  enableAiPredictiveAlerts,
+  onToggleAiPredictiveAlerts,
+  onDownloadCapacityAnalysisPdf,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -116,6 +130,19 @@ export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps>
     }
   };
 
+  // AI Predictive Alerts Interactive State (>90% Sectional Capacity Highlight & Conflict Driver)
+  const [internalEnableAiPredictiveAlerts, setInternalEnableAiPredictiveAlerts] = useState<boolean>(true);
+  const effectiveEnableAiAlerts =
+    enableAiPredictiveAlerts !== undefined ? enableAiPredictiveAlerts : internalEnableAiPredictiveAlerts;
+
+  const handleToggleAiAlerts = () => {
+    const nextVal = !effectiveEnableAiAlerts;
+    setInternalEnableAiPredictiveAlerts(nextVal);
+    if (onToggleAiPredictiveAlerts) {
+      onToggleAiPredictiveAlerts(nextVal);
+    }
+  };
+
   // Sync internal corridorFilter if selectedCorridorId changes from parent
   useEffect(() => {
     if (selectedCorridorId) {
@@ -143,6 +170,16 @@ export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps>
       thresholdSettings
     );
   }, [forecastData, scenario, corridorFilter, thresholdSettings]);
+
+  // Compute AI Predictive Alerts (>90% Sectional Capacity Highlight & Conflict Drivers)
+  const predictiveAlertsResult = useMemo(() => {
+    return predictiveAlertsService.evaluatePredictiveAlerts(
+      forecastData,
+      corridorFilter,
+      corridors,
+      thresholdSettings
+    );
+  }, [forecastData, corridorFilter, corridors, thresholdSettings]);
 
   // Summary Metrics
   const summaryMetrics = useMemo(() => {
@@ -723,6 +760,63 @@ export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps>
       }
     }
 
+    // --- AI PREDICTIVE ALERTS: DYNAMICALLY HIGHLIGHT DATES WHERE DEMAND EXCEEDS 90% OF SECTIONAL CAPACITY ---
+    if (effectiveEnableAiAlerts && predictiveAlertsResult.alerts.length > 0) {
+      const colWidth = Math.max(14, innerWidth / horizon);
+
+      predictiveAlertsResult.alerts.forEach((alt) => {
+        if (alt.isCapacityStrainExceeded90 && alt.dayNumber <= horizon) {
+          const cx = xScale(alt.dayNumber);
+          const bandX = cx - colWidth / 2;
+          const isMach = alt.primaryConflictDriver === 'Machinery Contention';
+
+          const alertColGroup = g.append('g').attr('class', `ai-alert-col-group day-${alt.dayNumber}`);
+
+          // Vertical Alert Highlight Column
+          alertColGroup
+            .append('rect')
+            .attr('x', bandX)
+            .attr('y', 0)
+            .attr('width', colWidth)
+            .attr('height', lineChartHeight)
+            .attr('fill', isMach ? '#f59e0b' : '#f43f5e')
+            .attr('fill-opacity', 0.12)
+            .attr('stroke', isMach ? '#d97706' : '#e11d48')
+            .attr('stroke-width', 1)
+            .attr('stroke-dasharray', '3,2')
+            .attr('stroke-opacity', 0.65)
+            .attr('rx', 2);
+
+          // Top Badge Tag on the highlight column
+          const tagGroup = alertColGroup
+            .append('g')
+            .attr('transform', `translate(${cx}, 10)`);
+
+          tagGroup
+            .append('rect')
+            .attr('x', -26)
+            .attr('y', -7)
+            .attr('width', 52)
+            .attr('height', 14)
+            .attr('rx', 3)
+            .attr('fill', isMach ? '#451a03' : '#4c0519')
+            .attr('stroke', isMach ? '#f59e0b' : '#fb7185')
+            .attr('stroke-width', 0.9)
+            .attr('opacity', 0.95);
+
+          tagGroup
+            .append('text')
+            .attr('text-anchor', 'middle')
+            .attr('y', 3)
+            .attr('fill', isMach ? '#fef08a' : '#ffe4e6')
+            .attr('font-size', '7.5px')
+            .attr('font-family', 'monospace')
+            .attr('font-weight', 'bold')
+            .text(`>90% ${isMach ? 'MACH' : 'GANG'}`);
+        }
+      });
+    }
+
     // --- DEFICIT SPIKE MARKERS & CLICKABLE DATA POINTS ---
     forecastData.forEach((point) => {
       const isDeficit = point.manpowerRequired > point.manpowerAvailable;
@@ -741,6 +835,23 @@ export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps>
           .attr('stroke', '#38bdf8')
           .attr('stroke-width', 2)
           .attr('stroke-dasharray', '3,3');
+      }
+
+      // AI Predictive Alert beacon ring (>90% Sectional Capacity Strain)
+      if (effectiveEnableAiAlerts) {
+        const alertInfo = predictiveAlertsResult.alerts.find((a) => a.dayNumber === point.dayNumber);
+        if (alertInfo && alertInfo.isCapacityStrainExceeded90) {
+          const isMach = alertInfo.primaryConflictDriver === 'Machinery Contention';
+          g.append('circle')
+            .attr('cx', cx)
+            .attr('cy', cyDemand)
+            .attr('r', 13)
+            .attr('fill', 'none')
+            .attr('stroke', isMach ? '#f59e0b' : '#f43f5e')
+            .attr('stroke-width', 1.8)
+            .attr('stroke-dasharray', '2,2')
+            .attr('opacity', 0.85);
+        }
       }
 
       // Manual Override Beacon Ring
@@ -1221,6 +1332,8 @@ export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps>
     segmentHeatmapData,
     effectiveShowTrendLine,
     regressionResult,
+    effectiveEnableAiAlerts,
+    predictiveAlertsResult,
   ]);
 
   return (
@@ -1436,6 +1549,54 @@ export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps>
             >
               {effectiveShowTrendLine ? 'ON (OLS)' : 'OFF'}
             </span>
+          </button>
+
+          {/* AI Predictive Alerts (>90% Sectional Capacity) Toggle Button */}
+          <button
+            id="btn-toolbar-toggle-ai-predictive-alerts"
+            onClick={handleToggleAiAlerts}
+            className={`px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer text-xs font-mono select-none ${
+              effectiveEnableAiAlerts
+                ? 'bg-amber-950/80 border-amber-500/90 text-amber-200 shadow-md shadow-amber-950/50'
+                : 'bg-[#070c1b] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+            title="Enable AI Predictive Alerts dynamically highlighting dates where resource demand exceeds 90% of sectional capacity and summarizing primary conflict drivers"
+            aria-pressed={effectiveEnableAiAlerts}
+          >
+            <AlertTriangle className={`w-3.5 h-3.5 ${effectiveEnableAiAlerts ? 'text-amber-400 animate-pulse' : 'text-slate-400'}`} />
+            <span>AI Alerts</span>
+            <span
+              className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                effectiveEnableAiAlerts
+                  ? 'bg-amber-900 text-amber-100 border border-amber-500'
+                  : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {effectiveEnableAiAlerts ? 'ON (>90%)' : 'OFF'}
+            </span>
+          </button>
+
+          {/* Download Capacity Analysis PDF Button */}
+          <button
+            id="btn-toolbar-download-capacity-pdf"
+            onClick={() => {
+              if (onDownloadCapacityAnalysisPdf) {
+                onDownloadCapacityAnalysisPdf();
+              } else {
+                const selCorridor = corridors.find((c) => c.id === corridorFilter) || null;
+                downloadCapacityAnalysisPdf({
+                  corridor: selCorridor,
+                  forecastData,
+                  regressionResult,
+                  thresholdSettings,
+                });
+              }
+            }}
+            className="px-2.5 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 border border-rose-700/80 text-rose-200 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer text-xs font-mono shadow-sm"
+            title="Download comprehensive PDF report containing current chart, resource demand summaries, and conflict driver justifications for the selected corridor"
+          >
+            <FileText className="w-3.5 h-3.5 text-rose-400" />
+            <span>Capacity PDF</span>
           </button>
 
           {/* Warning Buffer Line Toggle */}
@@ -1737,6 +1898,71 @@ export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps>
                 <span className="text-slate-400 font-normal">({driver.cycleIntervalDays}D Cycle)</span>
               </span>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* AI PREDICTIVE ALERTS INSIGHTS BANNER (Appears when AI Predictive Alerts is ON) */}
+      {effectiveEnableAiAlerts && (
+        <div
+          id="ai-predictive-alerts-insights-banner"
+          className="bg-gradient-to-r from-[#211204] via-[#1c1228] to-[#070c1b] border border-amber-600/70 rounded-xl p-4 text-xs font-mono shadow-xl animate-in fade-in slide-in-from-top-2 duration-200 space-y-3"
+        >
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-lg bg-amber-950/80 border border-amber-500/80 text-amber-400 mt-0.5 shrink-0 shadow-inner">
+                <AlertTriangle className="w-5 h-5 text-amber-400 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-amber-200 text-sm tracking-wide">
+                    AI Predictive Capacity Alerts (&gt;90% Sectional Capacity)
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-amber-900/90 text-amber-100 border border-amber-500/80 text-[10px] font-bold">
+                    Active Alert Engine
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-200 border border-rose-800 text-[10px] font-bold">
+                    {predictiveAlertsResult.strainDaysCount} Strain Dates Identified
+                  </span>
+                  <span className="text-[10px] text-amber-300 font-semibold px-2 py-0.5 rounded bg-slate-900 border border-slate-700">
+                    Threshold: &gt;90% of Corridor / Sectional Limit
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300 font-sans leading-relaxed">
+                  Real-time detection engine isolating dates where combined manpower or heavy machine slot demands exceed 90% of sectional throughput capacity. Hovering highlighted dates on the D3 chart below reveals the primary conflict driver (<span className="text-amber-300 font-semibold">Machinery Contention</span> vs <span className="text-rose-300 font-semibold">Manpower Shortage</span>) alongside statutory IRTMM mitigations.
+                </p>
+                <div className="text-[11px] text-amber-300/90 font-sans flex items-center gap-2 pt-0.5">
+                  <span className="font-bold font-mono text-amber-400">Dominant Conflict Driver:</span>
+                  <span>{predictiveAlertsResult.dominantNetworkDriver}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Metrics Breakdown */}
+            <div className="flex items-center gap-3 shrink-0 bg-[#0c0d1e] px-3.5 py-2.5 rounded-lg border border-amber-800/40 shadow-sm self-stretch lg:self-auto justify-between lg:justify-start">
+              <div>
+                <div className="text-[10px] text-slate-400 uppercase">Machinery Contention</div>
+                <div className="text-base font-bold text-amber-300 font-mono">
+                  {predictiveAlertsResult.machineryContentionCount}{' '}
+                  <span className="text-[10px] font-normal text-slate-400">dates</span>
+                </div>
+              </div>
+              <div className="w-px h-8 bg-slate-800" />
+              <div>
+                <div className="text-[10px] text-slate-400 uppercase">Manpower Shortage</div>
+                <div className="text-base font-bold text-rose-300 font-mono">
+                  {predictiveAlertsResult.manpowerShortageCount}{' '}
+                  <span className="text-[10px] font-normal text-slate-400">dates</span>
+                </div>
+              </div>
+              <div className="w-px h-8 bg-slate-800" />
+              <div>
+                <div className="text-[10px] text-slate-400 uppercase">Peak Strain Date</div>
+                <div className="text-base font-bold text-amber-200 font-mono">
+                  {predictiveAlertsResult.peakStrainDate || 'None'} ({predictiveAlertsResult.peakStrainPct}%)
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -2054,6 +2280,82 @@ export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps>
               })()
             )}
 
+            {/* AI PREDICTIVE ALERT (>90% SECTIONAL CAPACITY) TOOLTIP SUMMARY */}
+            {effectiveEnableAiAlerts && (() => {
+              const alertInfo = predictiveAlertsResult.alerts.find((a) => a.dayNumber === hoveredPoint.dayNumber);
+              if (!alertInfo || !alertInfo.isCapacityStrainExceeded90) return null;
+
+              const isMach = alertInfo.primaryConflictDriver === 'Machinery Contention';
+
+              return (
+                <div
+                  id="tooltip-ai-predictive-alert-card"
+                  className={`p-2.5 rounded-lg border mb-2 font-mono text-[11px] shadow-lg ${
+                    isMach
+                      ? 'bg-amber-950/95 border-amber-500/90 text-amber-100 ring-1 ring-amber-500/50'
+                      : 'bg-rose-950/95 border-rose-500/90 text-rose-100 ring-1 ring-rose-500/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1 pb-1 border-b border-amber-700/60 mb-1.5">
+                    <span className="font-bold flex items-center gap-1.5 text-xs">
+                      <AlertTriangle className={`w-3.5 h-3.5 ${isMach ? 'text-amber-400' : 'text-rose-400'} animate-bounce`} />
+                      <span className="tracking-wide text-white">AI PREDICTIVE ALERT</span>
+                    </span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-black/40 text-amber-300 border border-amber-500/50">
+                      {alertInfo.maxUtilizationPct}% Saturation
+                    </span>
+                  </div>
+
+                  {/* Primary Conflict Driver */}
+                  <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+                    <span className="text-slate-300">Conflict Driver:</span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-extrabold flex items-center gap-1 shadow-sm ${
+                        isMach
+                          ? 'bg-amber-900 text-amber-100 border border-amber-400'
+                          : 'bg-rose-900 text-rose-100 border border-rose-400'
+                      }`}
+                    >
+                      {isMach ? <Wrench className="w-3 h-3 text-amber-300" /> : <Users className="w-3 h-3 text-rose-300" />}
+                      <span>{alertInfo.primaryConflictDriver}</span>
+                    </span>
+                  </div>
+
+                  {/* Demand vs Capacity Utilization Details */}
+                  <div className="grid grid-cols-2 gap-1 text-[10px] bg-black/40 p-1.5 rounded border border-slate-700/60 mb-1.5">
+                    <div>
+                      <span className="text-slate-400 block">Manpower Load:</span>
+                      <span className={`font-bold ${alertInfo.manpowerUtilizationPct >= 90 ? 'text-rose-300' : 'text-emerald-300'}`}>
+                        {alertInfo.manpowerUtilizationPct}% ({alertInfo.manpowerRequired}/{alertInfo.manpowerAvailable})
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">Machinery Slots:</span>
+                      <span className={`font-bold ${alertInfo.machineryUtilizationPct >= 90 ? 'text-amber-300' : 'text-emerald-300'}`}>
+                        {alertInfo.machineryUtilizationPct}% ({alertInfo.machinerySlotsRequired}/{alertInfo.machinerySlotsAvailable} slots)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Detailed Conflict Driver Justification */}
+                  <div className="space-y-1 text-[10px] font-sans text-slate-200">
+                    <div>
+                      <span className="font-bold text-amber-300 font-mono">Affected Section:</span>{' '}
+                      <span>{alertInfo.affectedSectionName} ({alertInfo.affectedSectionCode})</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-300 font-mono">Driver Justification:</span>{' '}
+                      <span className="text-slate-200 leading-snug">{alertInfo.conflictDriverJustification}</span>
+                    </div>
+                    <div className="pt-1 border-t border-amber-800/60 text-amber-200">
+                      <span className="font-bold font-mono">AI Mitigation:</span>{' '}
+                      <span>{alertInfo.recommendedMitigationAction}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {hoveredPoint.manpowerRequired > hoveredPoint.manpowerAvailable ? (
               <div className="p-1.5 rounded bg-rose-950/80 border border-rose-800 text-rose-200 text-[11px] font-semibold flex items-center justify-between mb-2">
                 <span>DEFICIT DETECTED:</span>
@@ -2265,6 +2567,55 @@ export const ForecastedManpowerD3Chart: React.FC<ForecastedManpowerD3ChartProps>
                 {effectiveShowTrendLine ? (
                   <>
                     <Eye className="w-3 h-3 text-indigo-400" />
+                    <span>VISIBLE</span>
+                  </>
+                ) : (
+                  <>
+                    <EyeOff className="w-3 h-3 text-slate-400" />
+                    <span>HIDDEN</span>
+                  </>
+                )}
+              </span>
+            </button>
+
+            {/* Toggle Button for AI Predictive Alerts */}
+            <button
+              type="button"
+              id="btn-toggle-ai-alerts-legend"
+              onClick={handleToggleAiAlerts}
+              className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border text-xs font-mono transition-all cursor-pointer group shadow-sm select-none ${
+                effectiveEnableAiAlerts
+                  ? 'bg-amber-950/70 border-amber-600/90 text-amber-200 hover:bg-amber-900/80 shadow-amber-950/40'
+                  : 'bg-slate-900/90 border-slate-700/80 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+              }`}
+              title={
+                effectiveEnableAiAlerts
+                  ? "Click to hide AI Predictive Alerts (>90% Sectional Capacity)"
+                  : "Click to enable AI Predictive Alerts (>90% Sectional Capacity)"
+              }
+              aria-pressed={effectiveEnableAiAlerts}
+              aria-label="Toggle AI Predictive Alerts highlight"
+            >
+              <AlertTriangle className={`w-3.5 h-3.5 ${effectiveEnableAiAlerts ? 'text-amber-400' : 'text-slate-500'}`} />
+              <span
+                className={`font-semibold transition-colors ${
+                  effectiveEnableAiAlerts
+                    ? 'text-amber-200 group-hover:text-white'
+                    : 'text-slate-400 line-through decoration-slate-500'
+                }`}
+              >
+                AI Alerts (&gt;90% Strain)
+              </span>
+              <span
+                className={`px-1.5 py-0.2 rounded text-[10px] font-bold font-mono uppercase tracking-wider flex items-center gap-1 transition-colors ${
+                  effectiveEnableAiAlerts
+                    ? 'bg-amber-900 text-amber-100 border border-amber-500/70'
+                    : 'bg-slate-800 text-slate-400 border border-slate-700'
+                }`}
+              >
+                {effectiveEnableAiAlerts ? (
+                  <>
+                    <Eye className="w-3 h-3 text-amber-400" />
                     <span>VISIBLE</span>
                   </>
                 ) : (

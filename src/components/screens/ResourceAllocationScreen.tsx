@@ -76,6 +76,9 @@ import { MaintenanceResourceForecastModule } from './MaintenanceResourceForecast
 import { DeficitAlertThresholdModal } from '../modals/DeficitAlertThresholdModal';
 import { ForecastedManpowerD3Chart } from './ForecastedManpowerD3Chart';
 import { ManualForecastAdjustmentModal } from '../forecast/ManualForecastAdjustmentModal';
+import { downloadCapacityAnalysisPdf } from '../../services/capacityAnalysisPdfService';
+import { predictiveLinearRegressionService } from '../../services/predictiveLinearRegressionService';
+import { DynamicResourceLegend } from './DynamicResourceLegend';
 
 interface ResourceAllocationScreenProps {
   corridors: Corridor[];
@@ -151,6 +154,8 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
   const [fatigueSummary, setFatigueSummary] = useState(() => crewFatigueService.computeAnalysis());
   // Predictive Linear Regression Trend Line on D3 Chart (Historical Maintenance Cycles)
   const [showPredictiveTrendLine, setShowPredictiveTrendLine] = useState<boolean>(false);
+  // AI Predictive Alerts (>90% Sectional Capacity Highlight & Conflict Drivers)
+  const [enableAiPredictiveAlerts, setEnableAiPredictiveAlerts] = useState<boolean>(true);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'warn' } | null>(
     initialResourceType
       ? { message: `Filtered view for resource type: "${initialResourceType}"`, type: 'info' }
@@ -403,6 +408,40 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
     }
   };
 
+  // Download Capacity Analysis PDF Report Action
+  const handleDownloadCapacityAnalysisPdf = () => {
+    try {
+      const selectedCorridor = corridors.find((c) => c.id === selectedCorridorId) || null;
+      const corridorMetric = metrics.find((m) => m.corridorId === selectedCorridorId) || null;
+      const forecastRes = resourceForecastService.computeForecast('BASELINE', 30, selectedCorridorId || 'ALL');
+      const regressionRes = predictiveLinearRegressionService.computeLinearRegression(
+        forecastRes.dailyForecast,
+        selectedCorridorId || 'ALL'
+      );
+
+      downloadCapacityAnalysisPdf({
+        corridor: selectedCorridor,
+        corridorMetrics: corridorMetric,
+        forecastData: forecastRes.dailyForecast,
+        regressionResult: regressionRes,
+        thresholdSettings,
+      });
+
+      const scopeName = selectedCorridor ? `${selectedCorridor.id} - ${selectedCorridor.name}` : 'All Corridors (Total Fleet)';
+      showToast(
+        `Capacity Analysis PDF report generated & downloaded successfully for ${scopeName}`,
+        'success'
+      );
+      setNotification({
+        message: `Generated Official IR Corridor Capacity Analysis PDF report for ${scopeName}.`,
+        type: 'success',
+      });
+    } catch (err) {
+      console.error('Failed to export Capacity Analysis PDF report:', err);
+      showToast('Failed to generate Capacity Analysis PDF report. Please try again.', 'warn');
+    }
+  };
+
   // Confirm Reallocation modal action
   const handleConfirmReallocation = async () => {
     if (!selectedResourceId) {
@@ -515,6 +554,48 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
       };
     });
   }, [metrics]);
+
+  // Selected Corridor Object
+  const selectedCorridor = useMemo(() => {
+    return corridors.find((c) => c.id === selectedCorridorId) || null;
+  }, [corridors, selectedCorridorId]);
+
+  // Dynamic Legend stats across Manpower, Machinery, and Crew Fatigue
+  const dynamicLegendStats = useMemo(() => {
+    const activeMetrics = selectedCorridorId
+      ? metrics.filter((m) => m.corridorId === selectedCorridorId)
+      : metrics;
+
+    const manpower = {
+      trackGangs: activeMetrics.reduce((sum, m) => sum + (m.trackGangsHeadcount || 0), 0),
+      signalTechs: activeMetrics.reduce((sum, m) => sum + (m.signalTechsHeadcount || 0), 0),
+      oheLinesmen: activeMetrics.reduce((sum, m) => sum + (m.oheLinesmenHeadcount || 0), 0),
+      safetyLookouts: activeMetrics.reduce((sum, m) => sum + (m.safetyLookoutsHeadcount || 0), 0),
+      totalAllocated: activeMetrics.reduce((sum, m) => sum + (m.totalManpowerAllocated || 0), 0),
+      capacity: activeMetrics.reduce((sum, m) => sum + (m.manpowerCapacity || 0), 0),
+    };
+
+    const machinery = {
+      tampers: activeMetrics.reduce((sum, m) => sum + (m.tampingMachines || 0), 0),
+      regulators: activeMetrics.reduce((sum, m) => sum + (m.ballastRegulators || 0), 0),
+      towerWagons: activeMetrics.reduce((sum, m) => sum + (m.towerWagons || 0), 0),
+      grinders: activeMetrics.reduce((sum, m) => sum + (m.railGrinders || 0), 0),
+      stabilizers: activeMetrics.reduce((sum, m) => sum + (m.trackStabilizers || 0), 0),
+      totalAllocated: activeMetrics.reduce((sum, m) => sum + (m.totalMachineryAllocated || 0), 0),
+      capacity: activeMetrics.reduce((sum, m) => sum + (m.machineryCapacity || 0), 0),
+    };
+
+    const fatigue = {
+      lowCount: fatigueSummary.lowFatigueCount,
+      moderateCount: fatigueSummary.moderateFatigueCount,
+      highCount: fatigueSummary.highFatigueCount,
+      criticalCount: fatigueSummary.criticalFatigueCount,
+      averageScore: fatigueSummary.averageFatigueScore,
+      totalEvaluated: fatigueSummary.totalStaffEvaluated,
+    };
+
+    return { manpower, machinery, fatigue };
+  }, [metrics, selectedCorridorId, fatigueSummary]);
 
   // Filtered Machinery Table
   const filteredMachinery = useMemo(() => {
@@ -684,6 +765,17 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
             >
               <Download className="w-4 h-4 text-emerald-400" />
               <span>Export 30D Forecast (CSV)</span>
+            </button>
+
+            {/* Download Capacity Analysis PDF Report Button */}
+            <button
+              id="btn-download-capacity-analysis"
+              onClick={handleDownloadCapacityAnalysisPdf}
+              className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-rose-950/90 to-red-900/90 hover:from-rose-900 hover:to-red-800 text-rose-100 hover:text-white text-xs font-semibold border border-rose-600/80 flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-rose-950/50"
+              title="Download comprehensive PDF report containing the current chart, resource demand summaries, and conflict driver justifications for the selected corridor"
+            >
+              <FileText className="w-4 h-4 text-rose-300" />
+              <span>Download Capacity Analysis</span>
             </button>
 
             <button
@@ -958,15 +1050,56 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800">
                   30-Day Historical Maintenance Cycles
                 </span>
+
+                {/* AI PREDICTIVE ALERTS TOGGLE CHECKBOX */}
+                <label
+                  htmlFor="checkbox-enable-ai-predictive-alerts"
+                  className="flex items-center gap-2 cursor-pointer select-none group border-l border-indigo-700/60 pl-3 ml-1"
+                >
+                  <input
+                    type="checkbox"
+                    id="checkbox-enable-ai-predictive-alerts"
+                    name="enableAiPredictiveAlerts"
+                    checked={enableAiPredictiveAlerts}
+                    onChange={(e) => setEnableAiPredictiveAlerts(e.target.checked)}
+                    className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-amber-600/80 focus:ring-amber-500 focus:ring-offset-slate-950 cursor-pointer accent-amber-500"
+                  />
+                  <span className="text-sm font-bold text-slate-100 font-mono tracking-wide group-hover:text-amber-300 transition-colors flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-400" />
+                    <span>Enable AI Predictive Alerts</span>
+                  </span>
+                </label>
+
+                <span
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex items-center gap-1 transition-all ${
+                    enableAiPredictiveAlerts
+                      ? 'bg-amber-950 text-amber-200 border border-amber-500/80 shadow-sm shadow-amber-950/60'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${enableAiPredictiveAlerts ? 'bg-amber-400 animate-pulse' : 'bg-slate-500'}`} />
+                  <span>{enableAiPredictiveAlerts ? 'AI Alerts (>90% Strain) Active' : 'Alerts Inactive'}</span>
+                </span>
               </div>
 
               <p className="text-xs text-slate-300 font-sans leading-relaxed">
-                Applies Ordinary Least Squares (OLS) linear regression onto the 30-day D3 resource allocation chart to reveal long-range demand slope, calibrated against recurring maintenance cycles (50 GMT track renewal, 28D USFD railhead flaw waves, and 21D catenary thermal inspections).
+                Applies Ordinary Least Squares (OLS) linear regression onto the 30-day D3 resource allocation chart to reveal long-range demand slope, calibrated against recurring maintenance cycles (50 GMT track renewal, 28D USFD railhead flaw waves, and 21D catenary thermal inspections). When AI Predictive Alerts is enabled, dates exceeding 90% sectional capacity are dynamically highlighted with tooltip summaries of primary conflict drivers (<span className="text-amber-300 font-semibold">Machinery Contention</span> or <span className="text-rose-300 font-semibold">Manpower Shortage</span>).
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 self-start md:self-auto shrink-0 flex-wrap">
+            <button
+              type="button"
+              id="btn-download-capacity-analysis-panel"
+              onClick={handleDownloadCapacityAnalysisPdf}
+              className="px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 border border-rose-700/80 text-rose-200 hover:text-white text-xs font-mono transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+              title="Download official PDF report of capacity analysis, demand summaries, and conflict justifications"
+            >
+              <FileText className="w-3.5 h-3.5 text-rose-400" />
+              <span>Download PDF</span>
+            </button>
+
             {showPredictiveTrendLine ? (
               <div className="flex items-center gap-2 bg-[#080d22] px-3 py-1.5 rounded-lg border border-indigo-800/60 text-xs font-mono">
                 <span className="text-indigo-300 font-semibold">OLS Model: Active</span>
@@ -1016,6 +1149,9 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
         overrideCount={activeOverridesCount}
         showPredictiveTrendLine={showPredictiveTrendLine}
         onTogglePredictiveTrendLine={setShowPredictiveTrendLine}
+        enableAiPredictiveAlerts={enableAiPredictiveAlerts}
+        onToggleAiPredictiveAlerts={setEnableAiPredictiveAlerts}
+        onDownloadCapacityAnalysisPdf={handleDownloadCapacityAnalysisPdf}
       />
 
       {/* CORE VISUALIZATION: STACKABLE BAR CHART FOR CAPACITY PLANNING */}
@@ -1081,6 +1217,24 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
               <span>Capacity Load %</span>
             </button>
           </div>
+        </div>
+
+        {/* Dynamic Resource Legend: Color-Coded Categories for Manpower, Machinery, and Fatigue */}
+        <div className="mb-4">
+          <DynamicResourceLegend
+            activeChartView={chartView}
+            onSelectChartView={(view) => setChartView(view)}
+            activeTab={activeTab}
+            onSelectTab={(tab) => {
+              setActiveTab(tab);
+              const el = document.getElementById('fleet-roster-section');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            manpowerStats={dynamicLegendStats.manpower}
+            machineryStats={dynamicLegendStats.machinery}
+            fatigueStats={dynamicLegendStats.fatigue}
+            selectedCorridorName={selectedCorridor ? `${selectedCorridor.id} - ${selectedCorridor.name}` : null}
+          />
         </div>
 
         {/* Stackable Bar Chart Container */}
