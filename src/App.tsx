@@ -507,6 +507,9 @@ export default function App() {
               onRefreshConflicts={refreshAllData}
               onNavigate={handleNavigate}
               targetConflictBlockId={targetConflictBlockId}
+              publicationState={publicationState as any}
+              blocks={blocks}
+              blockRequests={requests}
             />
           )}
 

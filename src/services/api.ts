@@ -69,6 +69,7 @@ const STORAGE_KEYS = {
   PUBLICATION_INFO: 'railsync_publication_info',
   MACHINERY: 'railsync_machinery_resources',
   MANPOWER_GANGS: 'railsync_manpower_gangs',
+  AUTO_ARCHIVE_RESOLVED: 'railsync_auto_archive_resolved',
 };
 
 // State Store Class for isolated, persistent operational state
@@ -87,6 +88,7 @@ class RailSyncStore {
   private auditLogs: AuditLog[] = [];
   private machinery: MachineryResource[] = [];
   private manpowerGangs: ManpowerGang[] = [];
+  private autoArchiveResolved: boolean = true;
   private publicationInfo: PublicationInfo = {
     currentState: 'VALIDATION',
     totalBlocksPublished: 0,
@@ -171,6 +173,14 @@ class RailSyncStore {
       const savedPub = localStorage.getItem(STORAGE_KEYS.PUBLICATION_INFO);
       if (savedPub) {
         this.publicationInfo = JSON.parse(savedPub);
+      }
+
+      const savedAutoArchive = localStorage.getItem(STORAGE_KEYS.AUTO_ARCHIVE_RESOLVED);
+      if (savedAutoArchive !== null) {
+        this.autoArchiveResolved = savedAutoArchive === 'true';
+      } else {
+        // Default to true so newly published and cleared blocks auto-archive smoothly
+        this.autoArchiveResolved = true;
       }
     } catch (e) {
       console.warn('Error reading from localStorage, using in-memory fallbacks', e);
@@ -828,6 +838,103 @@ class RailSyncStore {
     );
   }
 
+  public getAutoArchiveSetting(): boolean {
+    return this.autoArchiveResolved;
+  }
+
+  public setAutoArchiveSetting(enabled: boolean): { success: boolean; transitionedCount: number } {
+    this.autoArchiveResolved = enabled;
+    this.persist(STORAGE_KEYS.AUTO_ARCHIVE_RESOLVED, enabled);
+    let transitionedCount = 0;
+    if (enabled) {
+      const res = this.autoArchiveResolvedConflicts();
+      transitionedCount = res.transitionedCount;
+    }
+    return { success: true, transitionedCount };
+  }
+
+  public autoArchiveResolvedConflicts(): { transitionedCount: number; closedConflicts: Conflict[] } {
+    const isTimetablePublished = this.publicationInfo.currentState === 'PUBLISHED';
+    const closed: Conflict[] = [];
+
+    this.conflicts.forEach((c) => {
+      // Transition conflicts in RESOLVED state once underlying block request is published and cleared
+      if (c.status === 'RESOLVED') {
+        const block = this.optimizedBlocks.find((b) => b.blockId === c.blockId || b.conflictId === c.conflictId);
+        const blockReq = this.blockRequests.find(
+          (r) => r.requestId === block?.requestId || r.assetId === c.assetId || (r.corridorId === c.corridorId && r.taskType === c.taskType)
+        );
+
+        // A block is cleared when it has no active conflicts and valid status
+        const isBlockCleared = block ? !block.hasConflict && (block.status === 'SCHEDULED' || block.status === 'RESOLVED' || block.validationStatus === 'VALID') : true;
+        // A block request is published and cleared if the timetable is published or request marked RESOLVED/VALIDATED
+        const isRequestPublishedAndCleared = (blockReq && (blockReq.status === 'RESOLVED' || blockReq.status === 'VALIDATED')) || isTimetablePublished;
+
+        if (isTimetablePublished && isBlockCleared) {
+          c.status = 'CLOSED';
+          c.closedAt = new Date().toISOString();
+          c.closedReason = `Auto-archived: Underlying maintenance block ${c.blockId} published in Timetable (${this.publicationInfo.publishedScheduleId || this.publicationInfo.scheduleVersion}) and operational clearance certified.`;
+          closed.push(c);
+        } else if (isRequestPublishedAndCleared && isBlockCleared && c.alternativeAppliedSlot) {
+          c.status = 'CLOSED';
+          c.closedAt = new Date().toISOString();
+          c.closedReason = `Auto-archived: Underlying block request ${c.blockId} resolved with slot ${c.alternativeAppliedSlot} and cleared in division operational schedule.`;
+          closed.push(c);
+        }
+      }
+    });
+
+    if (closed.length > 0) {
+      this.persist(STORAGE_KEYS.CONFLICTS, this.conflicts);
+      this.addAuditLogEntry(
+        this.currentUser?.name || 'Chief Block Coordinator',
+        this.currentUser?.role || 'RAILWAY_PLANNER',
+        'Auto-Archive Resolved Conflicts',
+        `${closed.length} Conflict(s) Closed in Database`,
+        'SUCCESS',
+        `Auto-archived ${closed.length} resolved conflict(s) (${closed.map((c) => c.conflictId).join(', ')}) to 'Closed' state in database following block schedule publication and timetable clearance.`
+      );
+    }
+
+    return { transitionedCount: closed.length, closedConflicts: closed };
+  }
+
+  public closeConflict(conflictId: string, reason?: string): { success: boolean; conflict: Conflict | null } {
+    const conflict = this.conflicts.find((c) => c.conflictId === conflictId);
+    if (!conflict) return { success: false, conflict: null };
+    conflict.status = 'CLOSED';
+    conflict.closedAt = new Date().toISOString();
+    conflict.closedReason = reason || 'Conflict transitioned to Closed state in database.';
+    this.persist(STORAGE_KEYS.CONFLICTS, this.conflicts);
+    this.addAuditLogEntry(
+      this.currentUser?.name || 'Chief Block Coordinator',
+      this.currentUser?.role || 'RAILWAY_PLANNER',
+      'Conflict Formally Closed',
+      `${conflict.conflictId} (${conflict.blockId})`,
+      'SUCCESS',
+      conflict.closedReason
+    );
+    return { success: true, conflict };
+  }
+
+  public reopenClosedConflict(conflictId: string): { success: boolean; conflict: Conflict | null } {
+    const conflict = this.conflicts.find((c) => c.conflictId === conflictId);
+    if (!conflict) return { success: false, conflict: null };
+    conflict.status = conflict.alternativeAppliedSlot ? 'RESOLVED' : 'OPEN';
+    conflict.closedAt = undefined;
+    conflict.closedReason = undefined;
+    this.persist(STORAGE_KEYS.CONFLICTS, this.conflicts);
+    this.addAuditLogEntry(
+      this.currentUser?.name || 'Chief Block Coordinator',
+      this.currentUser?.role || 'RAILWAY_PLANNER',
+      'Archived Conflict Reopened',
+      `${conflict.conflictId} (${conflict.blockId})`,
+      'INFO',
+      `Restored from Closed to ${conflict.status} state in active conflict register.`
+    );
+    return { success: true, conflict };
+  }
+
   public recalculateConflictsForForecastAdjustment(
     override: DailyForecastOverride,
     dayPoint: {
@@ -1174,6 +1281,11 @@ class RailSyncStore {
       hasConflict: false,
     }));
     this.persist(STORAGE_KEYS.OPTIMIZED_BLOCKS, this.optimizedBlocks);
+
+    // Auto-archive resolved conflicts if auto-archive toggle is enabled
+    if (this.autoArchiveResolved) {
+      this.autoArchiveResolvedConflicts();
+    }
 
     this.addAuditLogEntry(
       officerName || this.currentUser?.name || 'Smt. Ananya Sen',
@@ -1716,6 +1828,37 @@ function handleMockRequest<T>(endpoint: string, options: RequestInit = {}): Prom
         return;
       }
 
+      if (cleanEndpoint === '/api/conflicts/auto-archive') {
+        if (options.method === 'POST') {
+          const body = JSON.parse(options.body as string);
+          const res = mockStore.setAutoArchiveSetting(body.enabled);
+          resolve(res as unknown as T);
+          return;
+        }
+        resolve({ enabled: mockStore.getAutoArchiveSetting() } as unknown as T);
+        return;
+      }
+
+      if (cleanEndpoint === '/api/conflicts/trigger-auto-archive') {
+        const res = mockStore.autoArchiveResolvedConflicts();
+        resolve(res as unknown as T);
+        return;
+      }
+
+      if (cleanEndpoint === '/api/conflicts/close') {
+        const body = JSON.parse(options.body as string);
+        const res = mockStore.closeConflict(body.conflictId, body.reason);
+        resolve(res as unknown as T);
+        return;
+      }
+
+      if (cleanEndpoint === '/api/conflicts/reopen') {
+        const body = JSON.parse(options.body as string);
+        const res = mockStore.reopenClosedConflict(body.conflictId);
+        resolve(res as unknown as T);
+        return;
+      }
+
       if (cleanEndpoint === '/api/conflicts/recalculate-forecast-override') {
         const body = JSON.parse(options.body as string);
         const res = mockStore.recalculateConflictsForForecastAdjustment(body.override, body.dayPoint);
@@ -1902,6 +2045,38 @@ export async function resolveConflict(
 
 export async function resolveAllConflicts(): Promise<{ success: boolean }> {
   return apiRequest<{ success: boolean }>('/api/conflicts/resolve-all', { method: 'POST' });
+}
+
+export async function getAutoArchiveSetting(): Promise<boolean> {
+  const res = await apiRequest<{ enabled: boolean }>('/api/conflicts/auto-archive');
+  return res.enabled;
+}
+
+export async function setAutoArchiveSetting(enabled: boolean): Promise<{ success: boolean; transitionedCount: number }> {
+  return apiRequest<{ success: boolean; transitionedCount: number }>('/api/conflicts/auto-archive', {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export async function autoArchiveResolvedConflicts(): Promise<{ transitionedCount: number; closedConflicts: Conflict[] }> {
+  return apiRequest<{ transitionedCount: number; closedConflicts: Conflict[] }>('/api/conflicts/trigger-auto-archive', {
+    method: 'POST',
+  });
+}
+
+export async function closeConflict(conflictId: string, reason?: string): Promise<{ success: boolean; conflict: Conflict | null }> {
+  return apiRequest<{ success: boolean; conflict: Conflict | null }>('/api/conflicts/close', {
+    method: 'POST',
+    body: JSON.stringify({ conflictId, reason }),
+  });
+}
+
+export async function reopenClosedConflict(conflictId: string): Promise<{ success: boolean; conflict: Conflict | null }> {
+  return apiRequest<{ success: boolean; conflict: Conflict | null }>('/api/conflicts/reopen', {
+    method: 'POST',
+    body: JSON.stringify({ conflictId }),
+  });
 }
 
 export async function recalculateConflictsForForecastAdjustment(

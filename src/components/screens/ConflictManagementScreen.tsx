@@ -27,6 +27,9 @@ import {
   Zap,
   ShieldCheck,
   ListChecks,
+  Archive,
+  Database,
+  ArchiveRestore,
 } from 'lucide-react';
 import {
   Conflict,
@@ -35,6 +38,9 @@ import {
   CautionOrderMemo,
   DrmAuditReportData,
   PwiDispatchMessage,
+  PublicationInfo,
+  OptimizedBlock,
+  BlockRequest,
 } from '../../types';
 import {
   findAlternativeSlots,
@@ -45,6 +51,13 @@ import {
   generateCautionOrderMemo,
   getDrmSafetyAuditReport,
   getPwiDispatchMessage,
+  getAutoArchiveSetting,
+  setAutoArchiveSetting,
+  autoArchiveResolvedConflicts,
+  closeConflict,
+  reopenClosedConflict,
+  publishSchedule,
+  getPublicationState,
 } from '../../services/api';
 import { WhatIfSimulatorModal } from '../modals/WhatIfSimulatorModal';
 import { CautionOrderModal } from '../modals/CautionOrderModal';
@@ -60,6 +73,9 @@ interface ConflictManagementScreenProps {
   onRefreshConflicts: () => void;
   onNavigate: (screen: string) => void;
   targetConflictBlockId?: string;
+  publicationState?: PublicationInfo;
+  blocks?: OptimizedBlock[];
+  blockRequests?: BlockRequest[];
 }
 
 type SeverityFilterType = 'ALL' | 'CRITICAL' | 'HIGH' | 'LOW';
@@ -69,6 +85,9 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
   onRefreshConflicts,
   onNavigate,
   targetConflictBlockId,
+  publicationState,
+  blocks,
+  blockRequests,
 }) => {
   const [selectedConflict, setSelectedConflict] = useState<Conflict | null>(null);
   const [candidateSlots, setCandidateSlots] = useState<AlternativeSlot[]>([]);
@@ -92,7 +111,13 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [corridorFilter, setCorridorFilter] = useState<string>('ALL');
-  const [activeTab, setActiveTab] = useState<'OPEN' | 'RESOLVED'>('OPEN');
+  const [activeTab, setActiveTab] = useState<'OPEN' | 'RESOLVED' | 'CLOSED'>('OPEN');
+
+  // Auto-Archive Resolved state & publication tracking
+  const [autoArchiveResolved, setAutoArchiveResolved] = useState<boolean>(true);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [archiveNotification, setArchiveNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+  const [publicationInfo, setPublicationInfo] = useState<PublicationInfo | null>(publicationState || null);
 
   // Multi-select batch resolution state
   const [selectedConflictIds, setSelectedConflictIds] = useState<string[]>([]);
@@ -150,6 +175,54 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Fetch initial auto-archive setting and publication status
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const [setting, pub] = await Promise.all([
+          getAutoArchiveSetting(),
+          getPublicationState(),
+        ]);
+        if (active) {
+          setAutoArchiveResolved(setting);
+          setPublicationInfo(pub);
+        }
+      } catch (err) {
+        console.error('Failed to load auto-archive configuration:', err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Sync incoming publicationState prop
+  useEffect(() => {
+    if (publicationState) {
+      setPublicationInfo(publicationState);
+    }
+  }, [publicationState]);
+
+  // When auto-archive is active and schedule is published, auto-transition resolved conflicts to CLOSED
+  useEffect(() => {
+    if (autoArchiveResolved && publicationInfo?.currentState === 'PUBLISHED') {
+      const eligible = conflicts.filter((c) => c.status === 'RESOLVED');
+      if (eligible.length > 0) {
+        autoArchiveResolvedConflicts().then((res) => {
+          if (res.transitionedCount > 0) {
+            onRefreshConflicts();
+            setArchiveNotification({
+              message: `Auto-Archive Resolved: Automatically transitioned ${res.transitionedCount} resolved conflict(s) to 'Closed' in database once underlying block request was published and cleared.`,
+              type: 'success',
+            });
+            setTimeout(() => setArchiveNotification(null), 6000);
+          }
+        });
+      }
+    }
+  }, [conflicts, autoArchiveResolved, publicationInfo?.currentState, onRefreshConflicts]);
 
   // Severity toggle helper functions
   const toggleSeverity = (severity: 'CRITICAL' | 'HIGH' | 'LOW') => {
