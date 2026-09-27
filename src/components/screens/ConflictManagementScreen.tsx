@@ -224,6 +224,123 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
     }
   }, [conflicts, autoArchiveResolved, publicationInfo?.currentState, onRefreshConflicts]);
 
+  // Auto-Archive setting toggle handler
+  const handleToggleAutoArchive = async (enabled: boolean) => {
+    setAutoArchiveResolved(enabled);
+    try {
+      const res = await setAutoArchiveSetting(enabled);
+      if (enabled && res.transitionedCount > 0) {
+        onRefreshConflicts();
+        setArchiveNotification({
+          message: `Auto-Archive Enabled: Automatically transitioned ${res.transitionedCount} resolved conflict(s) to 'Closed' in database.`,
+          type: 'success',
+        });
+        setTimeout(() => setArchiveNotification(null), 5000);
+      } else {
+        setArchiveNotification({
+          message: enabled
+            ? 'Auto-Archive Enabled: Conflicts in Resolved status will automatically transition to Closed once block requests are published.'
+            : 'Auto-Archive Disabled: Resolved conflicts will remain in Resolved queue until manually closed.',
+          type: 'info',
+        });
+        setTimeout(() => setArchiveNotification(null), 4000);
+      }
+    } catch (err) {
+      console.error('Failed to update auto-archive setting:', err);
+    }
+  };
+
+  // Immediate manual trigger for auto-archive database evaluation
+  const handleTriggerAutoArchiveNow = async () => {
+    setIsArchiving(true);
+    try {
+      const res = await autoArchiveResolvedConflicts();
+      onRefreshConflicts();
+      if (res.transitionedCount > 0) {
+        setArchiveNotification({
+          message: `Auto-Archive Run Complete: Transitioned ${res.transitionedCount} resolved conflict(s) to 'Closed' state in database.`,
+          type: 'success',
+        });
+      } else {
+        const isPublished = publicationInfo?.currentState === 'PUBLISHED';
+        setArchiveNotification({
+          message: isPublished
+            ? 'Evaluation complete: All eligible resolved conflicts are already archived and closed in database.'
+            : 'Schedule is currently in draft validation. Auto-archive will automatically close resolved conflicts when published, or you can archive conflicts individually.',
+          type: 'info',
+        });
+      }
+      setTimeout(() => setArchiveNotification(null), 5000);
+    } catch (err) {
+      console.error('Failed to trigger auto-archive:', err);
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
+  // Manual transition of a resolved conflict to CLOSED
+  const handleManualCloseConflict = async (conflictId: string, customReason?: string) => {
+    try {
+      const res = await closeConflict(
+        conflictId,
+        customReason || 'Manually closed by Chief Block Coordinator: Resolution validated and archived in database.'
+      );
+      if (res.success) {
+        onRefreshConflicts();
+        setArchiveNotification({
+          message: `Conflict ${conflictId} has been archived to Closed state in database.`,
+          type: 'success',
+        });
+        setTimeout(() => setArchiveNotification(null), 4000);
+      }
+    } catch (err) {
+      console.error('Failed to close conflict:', err);
+    }
+  };
+
+  // Reopen a closed conflict back to RESOLVED status
+  const handleReopenConflict = async (conflictId: string) => {
+    try {
+      const res = await reopenClosedConflict(conflictId);
+      if (res.success) {
+        onRefreshConflicts();
+        setArchiveNotification({
+          message: `Conflict ${conflictId} restored from Closed archive to Resolved status.`,
+          type: 'info',
+        });
+        setTimeout(() => setArchiveNotification(null), 4000);
+      }
+    } catch (err) {
+      console.error('Failed to reopen conflict:', err);
+    }
+  };
+
+  // Batch archive all resolved conflicts to Closed state
+  const handleCloseAllResolved = async () => {
+    if (resolvedConflicts.length === 0) return;
+    setIsArchiving(true);
+    try {
+      let count = 0;
+      for (const c of resolvedConflicts) {
+        const res = await closeConflict(
+          c.conflictId,
+          `Batch closed: Resolved slot ${c.alternativeAppliedSlot || 'assigned'} confirmed in database.`
+        );
+        if (res.success) count++;
+      }
+      onRefreshConflicts();
+      setArchiveNotification({
+        message: `Batch Archival Complete: ${count} resolved conflict(s) transitioned to 'Closed' in database.`,
+        type: 'success',
+      });
+      setTimeout(() => setArchiveNotification(null), 5000);
+    } catch (err) {
+      console.error('Error closing all resolved conflicts:', err);
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
   // Severity toggle helper functions
   const toggleSeverity = (severity: 'CRITICAL' | 'HIGH' | 'LOW') => {
     setSeverityToggles((prev) => ({
@@ -315,9 +432,10 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
     }
   };
 
-  // Filter open conflicts vs resolved
+  // Filter open conflicts vs resolved vs closed (database archive)
   const openConflicts = useMemo(() => conflicts.filter((c) => c.status === 'OPEN'), [conflicts]);
   const resolvedConflicts = useMemo(() => conflicts.filter((c) => c.status === 'RESOLVED'), [conflicts]);
+  const closedConflicts = useMemo(() => conflicts.filter((c) => c.status === 'CLOSED'), [conflicts]);
 
   // Severity counts for open conflicts
   const criticalCount = useMemo(() => openConflicts.filter((c) => c.severity === 'CRITICAL').length, [openConflicts]);
@@ -372,6 +490,30 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
       return true;
     });
   }, [resolvedConflicts, severityToggles, corridorFilter, searchQuery]);
+
+  // Filtered closed conflicts (Database Archive)
+  const filteredClosedConflicts = useMemo(() => {
+    return closedConflicts.filter((c) => {
+      if (!severityToggles[c.severity]) {
+        return false;
+      }
+      if (corridorFilter !== 'ALL' && c.corridorId !== corridorFilter) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase().trim();
+        return (
+          c.conflictId.toLowerCase().includes(query) ||
+          c.blockId.toLowerCase().includes(query) ||
+          c.trainNumber.toLowerCase().includes(query) ||
+          c.corridorId.toLowerCase().includes(query) ||
+          (c.closedReason || '').toLowerCase().includes(query) ||
+          (c.resolutionNotes || '').toLowerCase().includes(query)
+        );
+      }
+      return true;
+    });
+  }, [closedConflicts, severityToggles, corridorFilter, searchQuery]);
 
   // Counts of currently visible open conflicts broken down by severity, reflecting active filters
   const visibleCounts = useMemo(() => {
@@ -642,6 +784,156 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
         onRefreshConflicts={onRefreshConflicts}
         className="mb-6"
       />
+
+      {/* AUTO-ARCHIVE NOTIFICATION BANNER */}
+      {archiveNotification && (
+        <div
+          id="archive-notification-banner"
+          data-testid="archive-notification-banner"
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-xs font-mono shadow-lg transition-all animate-in fade-in slide-in-from-top-2 ${
+            archiveNotification.type === 'success'
+              ? 'bg-emerald-950/80 border-emerald-500/80 text-emerald-200'
+              : 'bg-sky-950/80 border-sky-500/80 text-sky-200'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <Archive className="w-5 h-5 shrink-0 text-emerald-400" />
+            <span>{archiveNotification.message}</span>
+          </div>
+          <button
+            onClick={() => setArchiveNotification(null)}
+            className="p-1 text-slate-400 hover:text-white rounded cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* AUTO-ARCHIVE RESOLVED TO DATABASE CONTROLLER */}
+      <div
+        id="auto-archive-control-card"
+        data-testid="auto-archive-control-card"
+        className="bg-[#0b1429] border border-blue-900/60 rounded-xl p-4 sm:p-5 shadow-lg space-y-3"
+      >
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className={`p-2.5 rounded-xl border shrink-0 ${
+              autoArchiveResolved
+                ? 'bg-emerald-950/90 border-emerald-600/80 text-emerald-400 shadow-md shadow-emerald-950/40'
+                : 'bg-slate-900 border-slate-700 text-slate-400'
+            }`}>
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-100 font-mono flex items-center gap-1.5">
+                  <Archive className="w-4 h-4 text-sky-400" />
+                  Auto-Archive Resolved Conflicts
+                </h3>
+                <span
+                  id="badge-auto-archive-status"
+                  data-testid="badge-auto-archive-status"
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase tracking-wider border ${
+                    autoArchiveResolved
+                      ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700'
+                      : 'bg-slate-900 text-slate-400 border-slate-700'
+                  }`}
+                >
+                  {autoArchiveResolved ? 'AUTO-ARCHIVE: ACTIVE' : 'MANUAL ARCHIVE ONLY'}
+                </span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                  publicationInfo?.currentState === 'PUBLISHED'
+                    ? 'bg-blue-950 text-sky-300 border-blue-700 font-bold'
+                    : 'bg-amber-950/80 text-amber-300 border-amber-800'
+                }`}>
+                  {publicationInfo?.currentState === 'PUBLISHED'
+                    ? `TIMETABLE: PUBLISHED (${publicationInfo.publishedScheduleId || publicationInfo.scheduleVersion})`
+                    : 'TIMETABLE: DRAFT / VALIDATION'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 font-mono mt-1">
+                When enabled, conflicts in <span className="text-emerald-400 font-semibold">&apos;Resolved&apos;</span> state automatically transition to <span className="text-sky-300 font-semibold">&apos;Closed&apos;</span> in the database as soon as the associated block request is published and operational clearance is certified.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0 self-start md:self-center flex-wrap">
+            {/* Toggle Switch */}
+            <label
+              htmlFor="toggle-auto-archive-resolved"
+              className="flex items-center gap-2.5 cursor-pointer bg-slate-900/90 hover:bg-slate-900 border border-slate-700 hover:border-sky-500 px-3 py-1.5 rounded-lg transition-all"
+            >
+              <span className="text-xs font-mono text-slate-200 font-semibold">
+                Auto-Archive:
+              </span>
+              <input
+                id="toggle-auto-archive-resolved"
+                data-testid="toggle-auto-archive-resolved"
+                type="checkbox"
+                checked={autoArchiveResolved}
+                onChange={(e) => handleToggleAutoArchive(e.target.checked)}
+                className="sr-only"
+              />
+              <div
+                className={`w-11 h-6 rounded-full transition-colors relative p-0.5 ${
+                  autoArchiveResolved ? 'bg-emerald-600' : 'bg-slate-700'
+                }`}
+              >
+                <div
+                  className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                    autoArchiveResolved ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </div>
+              <span className={`text-xs font-mono font-bold ${autoArchiveResolved ? 'text-emerald-400' : 'text-slate-400'}`}>
+                {autoArchiveResolved ? 'ON' : 'OFF'}
+              </span>
+            </label>
+
+            {/* Run Auto-Archive Now Button */}
+            <button
+              id="btn-run-auto-archive"
+              data-testid="btn-run-auto-archive"
+              onClick={handleTriggerAutoArchiveNow}
+              disabled={isArchiving}
+              className="px-3.5 py-1.5 rounded-lg bg-sky-950/90 hover:bg-sky-900 border border-sky-600/80 text-sky-200 text-xs font-mono font-semibold flex items-center gap-1.5 cursor-pointer shadow-md transition-colors disabled:opacity-50"
+              title="Trigger immediate auto-archive database check for resolved conflicts"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 text-sky-400 ${isArchiving ? 'animate-spin' : ''}`} />
+              <span>{isArchiving ? 'Archiving...' : 'Trigger Archive Now'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Database Hygiene Summary Stats Strip */}
+        <div className="pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono text-slate-400 flex-wrap gap-2">
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              Open Pending: <strong className="text-slate-200 font-bold">{openConflicts.length}</strong>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              Resolved Queue: <strong className="text-slate-200 font-bold">{resolvedConflicts.length}</strong>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-sky-400" />
+              Closed / Archived in DB: <strong className="text-slate-200 font-bold">{closedConflicts.length}</strong>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('CLOSED')}
+              className="text-[10px] text-sky-400 hover:text-sky-300 underline underline-offset-2 cursor-pointer flex items-center gap-1"
+            >
+              <ArchiveRestore className="w-3 h-3" />
+              <span>Inspect Closed Archive ({closedConflicts.length})</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* CONFLICT OVERVIEW CARD - REFLECTING ACTIVE FILTER STATE */}
       <div
@@ -1657,7 +1949,68 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
         </div>
       </div>
 
+      {/* CONFLICT QUEUE TABS: OPEN / RESOLVED / CLOSED ARCHIVE */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-2 flex-wrap">
+        <button
+          id="tab-conflicts-open"
+          data-testid="tab-conflicts-open"
+          onClick={() => setActiveTab('OPEN')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-mono font-bold flex items-center gap-2 cursor-pointer transition-all ${
+            activeTab === 'OPEN'
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-950/60 border border-blue-400'
+              : 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-800'
+          }`}
+        >
+          <AlertTriangle className={`w-3.5 h-3.5 ${activeTab === 'OPEN' ? 'text-white' : 'text-amber-400'}`} />
+          <span>Open Conflicts</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+            activeTab === 'OPEN' ? 'bg-blue-800 text-white' : 'bg-slate-800 text-slate-300'
+          }`}>
+            {filteredOpenConflicts.length} / {openConflicts.length}
+          </span>
+        </button>
+
+        <button
+          id="tab-conflicts-resolved"
+          data-testid="tab-conflicts-resolved"
+          onClick={() => setActiveTab('RESOLVED')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-mono font-bold flex items-center gap-2 cursor-pointer transition-all ${
+            activeTab === 'RESOLVED'
+              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/60 border border-emerald-400'
+              : 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-800'
+          }`}
+        >
+          <CheckCircle2 className={`w-3.5 h-3.5 ${activeTab === 'RESOLVED' ? 'text-white' : 'text-emerald-400'}`} />
+          <span>Resolved History</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+            activeTab === 'RESOLVED' ? 'bg-emerald-800 text-white' : 'bg-slate-800 text-slate-300'
+          }`}>
+            {filteredResolvedConflicts.length} / {resolvedConflicts.length}
+          </span>
+        </button>
+
+        <button
+          id="tab-conflicts-closed"
+          data-testid="tab-conflicts-closed"
+          onClick={() => setActiveTab('CLOSED')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-mono font-bold flex items-center gap-2 cursor-pointer transition-all ${
+            activeTab === 'CLOSED'
+              ? 'bg-sky-600 text-white shadow-lg shadow-sky-950/60 border border-sky-400'
+              : 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-800'
+          }`}
+        >
+          <Archive className={`w-3.5 h-3.5 ${activeTab === 'CLOSED' ? 'text-white' : 'text-sky-400'}`} />
+          <span>Closed Archive (Database)</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+            activeTab === 'CLOSED' ? 'bg-sky-800 text-white' : 'bg-slate-800 text-slate-300'
+          }`}>
+            {filteredClosedConflicts.length} / {closedConflicts.length}
+          </span>
+        </button>
+      </div>
+
       {/* CONFLICTS TABLE VIEW */}
+      {activeTab === 'OPEN' && (
       <div className="bg-[#0e172e] p-5 rounded-xl border border-sky-950/80 shadow-md">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <div>
@@ -1962,68 +2315,216 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
           </div>
         )}
       </div>
+      )}
 
-      {/* RESOLVED CONFLICTS HISTORY */}
-      {resolvedConflicts.length > 0 && (
-        <div className="bg-[#0e172e] p-5 rounded-xl border border-sky-950/80 shadow-md">
-          <div className="flex items-center justify-between mb-3">
+      {/* RESOLVED CONFLICTS SECTION (Visible on RESOLVED tab or as preview when OPEN) */}
+      {(activeTab === 'RESOLVED' || (activeTab === 'OPEN' && resolvedConflicts.length > 0)) && (
+        <div id="resolved-conflicts-section" data-testid="resolved-conflicts-section" className="bg-[#0e172e] p-5 rounded-xl border border-sky-950/80 shadow-md space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono">
-                Resolved Conflicts History ({filteredResolvedConflicts.length} of {resolvedConflicts.length} Rescheduled)
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                Audit trail of resolved train clashes and approved alternative slot assignments
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono">
+                  Resolved Conflicts History ({filteredResolvedConflicts.length} of {resolvedConflicts.length} Rescheduled)
+                </h3>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-bold">
+                  RESOLVED QUEUE
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Audit trail of resolved train clashes and approved alternative slot assignments awaiting timetable publication or manual database closure.
               </p>
             </div>
-            {!isAllSelected && (
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 uppercase">
-                Filtered: {getDropdownLabel()}
-              </span>
-            )}
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {!isAllSelected && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 uppercase">
+                  Filtered: {getDropdownLabel()}
+                </span>
+              )}
+              <button
+                id="btn-archive-all-resolved"
+                data-testid="btn-archive-all-resolved"
+                onClick={handleCloseAllResolved}
+                disabled={isArchiving || resolvedConflicts.length === 0}
+                className="px-3 py-1.5 rounded-lg bg-sky-950/90 hover:bg-sky-900 border border-sky-600/80 text-sky-200 text-xs font-mono font-semibold flex items-center gap-1.5 cursor-pointer shadow-md transition-colors disabled:opacity-50"
+                title="Archive all resolved conflicts to Closed status in database"
+              >
+                <Archive className="w-3.5 h-3.5 text-sky-400" />
+                <span>Archive All to DB ({resolvedConflicts.length})</span>
+              </button>
+            </div>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-slate-800">
-            <table className="w-full text-left text-xs font-mono text-[11px]">
-              <thead className="bg-[#0a1020] text-slate-400 border-b border-slate-800 uppercase tracking-wider">
-                <tr>
-                  <th className="py-2.5 px-3">Severity</th>
-                  <th className="py-2.5 px-3">Conflict ID</th>
-                  <th className="py-2.5 px-3">Block ID</th>
-                  <th className="py-2.5 px-3">Train</th>
-                  <th className="py-2.5 px-3">Corridor</th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3">Applied Alternative Slot / Resolution</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {filteredResolvedConflicts.map((c) => (
-                  <tr key={c.conflictId} className="hover:bg-slate-800/30 text-slate-300">
-                    <td className="py-2.5 px-3">{renderSeverityBadge(c.severity)}</td>
-                    <td className="py-2.5 px-3 text-slate-400">{c.conflictId}</td>
-                    <td className="py-2.5 px-3 font-semibold text-sky-300">{c.blockId}</td>
-                    <td className="py-2.5 px-3 text-slate-300">{c.trainNumber}</td>
-                    <td className="py-2.5 px-3 font-semibold">{c.corridorId}</td>
-                    <td className="py-2.5 px-3">
-                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 flex items-center gap-1 w-fit">
-                        <Check className="w-3 h-3 text-emerald-400" />
-                        RESOLVED
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-300">
-                      <div className="font-semibold text-emerald-300">
-                        {c.alternativeAppliedSlot || 'Rescheduled to conflict-free window'}
-                      </div>
-                      {c.resolutionNotes && (
-                        <div className="text-[10px] text-slate-400 font-normal mt-0.5">
-                          {c.resolutionNotes}
-                        </div>
-                      )}
-                    </td>
+          {filteredResolvedConflicts.length > 0 ? (
+            <div className="overflow-x-auto rounded-lg border border-slate-800">
+              <table className="w-full text-left text-xs font-mono text-[11px]">
+                <thead className="bg-[#0a1020] text-slate-400 border-b border-slate-800 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-2.5 px-3">Severity</th>
+                    <th className="py-2.5 px-3">Conflict ID</th>
+                    <th className="py-2.5 px-3">Block ID</th>
+                    <th className="py-2.5 px-3">Train</th>
+                    <th className="py-2.5 px-3">Corridor</th>
+                    <th className="py-2.5 px-3">Status</th>
+                    <th className="py-2.5 px-3">Applied Alternative Slot / Resolution</th>
+                    <th className="py-2.5 px-3 text-right">Archival Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {filteredResolvedConflicts.map((c) => (
+                    <tr key={c.conflictId} className="hover:bg-slate-800/30 text-slate-300">
+                      <td className="py-2.5 px-3">{renderSeverityBadge(c.severity)}</td>
+                      <td className="py-2.5 px-3 text-slate-400">{c.conflictId}</td>
+                      <td className="py-2.5 px-3 font-semibold text-sky-300">{c.blockId}</td>
+                      <td className="py-2.5 px-3 text-slate-300">{c.trainNumber}</td>
+                      <td className="py-2.5 px-3 font-semibold">{c.corridorId}</td>
+                      <td className="py-2.5 px-3">
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 flex items-center gap-1 w-fit">
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          RESOLVED
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-300">
+                        <div className="font-semibold text-emerald-300">
+                          {c.alternativeAppliedSlot || 'Rescheduled to conflict-free window'}
+                        </div>
+                        {c.resolutionNotes && (
+                          <div className="text-[10px] text-slate-400 font-normal mt-0.5">
+                            {c.resolutionNotes}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        <button
+                          id={`btn-close-conflict-${c.conflictId}`}
+                          data-testid={`btn-close-conflict-${c.conflictId}`}
+                          onClick={() => handleManualCloseConflict(c.conflictId)}
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                          title="Archive this resolved conflict to Closed state in database"
+                        >
+                          <Archive className="w-3 h-3 text-sky-400" />
+                          <span>Close / Archive</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-6 text-center bg-slate-900/60 rounded-lg border border-slate-800">
+              <p className="text-xs text-slate-400 font-mono">
+                {resolvedConflicts.length === 0
+                  ? 'No resolved conflicts in queue. Resolve open conflicts with AI alternative slots to view them here.'
+                  : 'No resolved conflicts match the active filter criteria.'}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* CLOSED CONFLICTS ARCHIVE SECTION (DATABASE) */}
+      {activeTab === 'CLOSED' && (
+        <div id="closed-conflicts-archive-section" data-testid="closed-conflicts-archive-section" className="bg-[#0e172e] p-5 rounded-xl border border-sky-950/80 shadow-md space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="p-1 rounded bg-sky-950 border border-sky-700 text-sky-400">
+                  <Archive className="w-4 h-4" />
+                </div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono">
+                  Closed Conflicts Archive ({filteredClosedConflicts.length} of {closedConflicts.length} in Database)
+                </h3>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800 font-bold">
+                  DATABASE ARCHIVE
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Permanent operational records of resolved conflicts transitioned to &apos;Closed&apos; state once their underlying block request was formally published and cleared in the operational timetable.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono px-2.5 py-1 rounded bg-slate-900 text-sky-300 border border-slate-800">
+                {autoArchiveResolved ? 'Auto-Archive Policy: Active' : 'Manual Archival Mode'}
+              </span>
+            </div>
           </div>
+
+          {filteredClosedConflicts.length > 0 ? (
+            <div className="overflow-x-auto rounded-lg border border-slate-800">
+              <table className="w-full text-left text-xs font-mono text-[11px]">
+                <thead className="bg-[#0a1020] text-slate-400 border-b border-slate-800 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-2.5 px-3">Severity</th>
+                    <th className="py-2.5 px-3">Conflict ID</th>
+                    <th className="py-2.5 px-3">Corridor & Block</th>
+                    <th className="py-2.5 px-3">Conflicting Train</th>
+                    <th className="py-2.5 px-3">Closure Timestamp</th>
+                    <th className="py-2.5 px-3">Database Clearance Rationale</th>
+                    <th className="py-2.5 px-3">Database State</th>
+                    <th className="py-2.5 px-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {filteredClosedConflicts.map((c) => (
+                    <tr key={c.conflictId} className="hover:bg-slate-800/30 text-slate-300">
+                      <td className="py-2.5 px-3">{renderSeverityBadge(c.severity)}</td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-400">{c.conflictId}</td>
+                      <td className="py-2.5 px-3 font-semibold text-sky-300">
+                        {c.corridorId} - {c.blockId}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-300">{c.trainNumber}</td>
+                      <td className="py-2.5 px-3 text-slate-400 whitespace-nowrap">
+                        {c.closedAt ? new Date(c.closedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Published'}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-300 max-w-xs">
+                        <div className="font-medium text-emerald-300 truncate" title={c.closedReason || 'Operational clearance certified.'}>
+                          {c.closedReason || 'Auto-archived upon timetable publication and clearance.'}
+                        </div>
+                        {c.alternativeAppliedSlot && (
+                          <div className="text-[10px] text-slate-400">
+                            Applied Slot: {c.alternativeAppliedSlot}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-sky-950 text-sky-300 border border-sky-800 flex items-center gap-1 w-fit font-bold">
+                          <Database className="w-3 h-3 text-sky-400" />
+                          CLOSED
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        <button
+                          id={`btn-reopen-conflict-${c.conflictId}`}
+                          data-testid={`btn-reopen-conflict-${c.conflictId}`}
+                          onClick={() => handleReopenConflict(c.conflictId)}
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                          title="Reopen this conflict and restore it to the Resolved queue"
+                        >
+                          <RotateCcw className="w-3 h-3 text-amber-400" />
+                          <span>Reopen</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-8 text-center bg-slate-900/60 rounded-lg border border-slate-800 space-y-2">
+              <Archive className="w-8 h-8 text-sky-400 mx-auto opacity-70" />
+              <h4 className="text-sm font-bold text-slate-200 font-mono">
+                {closedConflicts.length === 0 ? 'No Archived Conflicts Yet' : 'No Closed Conflicts Match Current Filters'}
+              </h4>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                {closedConflicts.length === 0
+                  ? "When 'Auto-Archive Resolved' is ON, resolved conflicts automatically transition to this database archive as soon as the maintenance block schedule is published in the Final Safety Gate. You can also manually archive individual resolved conflicts from the Resolved tab."
+                  : 'Adjust your corridor, severity, or search filters to see all closed conflict records in the database.'}
+              </p>
+            </div>
+          )}
         </div>
       )}
 

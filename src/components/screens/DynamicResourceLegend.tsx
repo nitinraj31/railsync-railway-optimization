@@ -25,8 +25,8 @@ export type LegendCategoryFilter = 'ALL' | 'MANPOWER' | 'MACHINERY' | 'FATIGUE';
 export interface DynamicResourceLegendProps {
   activeChartView?: 'MANPOWER_TRADES' | 'MACHINERY_CLASSES' | 'UTILIZATION_LOAD';
   onSelectChartView?: (view: 'MANPOWER_TRADES' | 'MACHINERY_CLASSES' | 'UTILIZATION_LOAD') => void;
-  activeTab?: 'MACHINERY' | 'MANPOWER' | 'FATIGUE' | 'FORECAST';
-  onSelectTab?: (tab: 'MACHINERY' | 'MANPOWER' | 'FATIGUE' | 'FORECAST') => void;
+  activeTab?: 'MACHINERY' | 'MANPOWER' | 'TIMELINE' | 'FATIGUE' | 'FORECAST';
+  onSelectTab?: (tab: 'MACHINERY' | 'MANPOWER' | 'TIMELINE' | 'FATIGUE' | 'FORECAST') => void;
   manpowerStats?: {
     trackGangs: number;
     signalTechs: number;

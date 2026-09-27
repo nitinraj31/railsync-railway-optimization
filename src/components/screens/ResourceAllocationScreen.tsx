@@ -36,6 +36,7 @@ import {
   Download,
   Sun,
   Sunrise,
+  CalendarClock,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -89,6 +90,7 @@ import { downloadCapacityAnalysisPdf } from '../../services/capacityAnalysisPdfS
 import { predictiveLinearRegressionService } from '../../services/predictiveLinearRegressionService';
 import { DynamicResourceLegend } from './DynamicResourceLegend';
 import { OptimizedShiftModal } from '../modals/OptimizedShiftModal';
+import { ResourceGanttTimeline } from './ResourceGanttTimeline';
 
 interface ResourceAllocationScreenProps {
   corridors: Corridor[];
@@ -99,13 +101,13 @@ interface ResourceAllocationScreenProps {
   onNavigateToConflicts?: () => void;
   initialResourceType?: string;
   initialCorridorId?: string;
-  initialTab?: 'MACHINERY' | 'MANPOWER' | 'FATIGUE' | 'FORECAST';
+  initialTab?: 'MACHINERY' | 'MANPOWER' | 'TIMELINE' | 'FATIGUE' | 'FORECAST';
   initialShift?: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
 }
 
 type ChartViewMode = 'MANPOWER_TRADES' | 'MACHINERY_CLASSES' | 'UTILIZATION_LOAD';
 type ShiftType = 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
-type ActiveTab = 'MACHINERY' | 'MANPOWER' | 'FATIGUE' | 'FORECAST';
+type ActiveTab = 'MACHINERY' | 'MANPOWER' | 'TIMELINE' | 'FATIGUE' | 'FORECAST';
 
 export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> = ({
   corridors,
@@ -124,6 +126,9 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
     if (initialTab) return initialTab;
     if (initialResourceType) {
       const lower = initialResourceType.toLowerCase();
+      if (lower.includes('gantt') || lower.includes('timeline') || lower.includes('schedule') || lower.includes('mapping')) {
+        return 'TIMELINE';
+      }
       if (lower.includes('forecast') || lower.includes('gap') || lower.includes('predict') || lower.includes('horizon')) {
         return 'FORECAST';
       }
@@ -558,6 +563,25 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
     setIsReallocateModalOpen(true);
   };
 
+  // Reallocation handlers for Gantt Timeline with auto data reload
+  const handleGanttReallocateMachinery = async (machineId: string, toCorridorId: string) => {
+    const res = await reallocateMachinery(machineId, toCorridorId, 'Reallocated via Resource Gantt Timeline');
+    await reloadData();
+    if (res.success) {
+      showToast(res.message, 'success');
+    }
+    return res;
+  };
+
+  const handleGanttReallocateGang = async (gangId: string, toCorridorId: string) => {
+    const res = await reallocateGang(gangId, toCorridorId, 'Reallocated via Resource Gantt Timeline');
+    await reloadData();
+    if (res.success) {
+      showToast(res.message, 'success');
+    }
+    return res;
+  };
+
   // Aggregated KPIs
   const totalDeployedManpower = useMemo(() => {
     return gangs
@@ -796,6 +820,29 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
 
           {/* Action Toolbar */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Resource Gantt Timeline Button */}
+            <button
+              id="header-resource-gantt-btn"
+              data-testid="header-resource-gantt-btn"
+              onClick={() => {
+                setActiveTab('TIMELINE');
+                const el = document.getElementById('fleet-roster-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer ${
+                activeTab === 'TIMELINE'
+                  ? 'bg-emerald-950/90 text-emerald-200 border-emerald-500 shadow-lg shadow-emerald-950/60'
+                  : 'bg-slate-900 hover:bg-slate-800 text-emerald-300 hover:text-emerald-200 border-emerald-900/60'
+              }`}
+              title="Inspect Gantt-style resource timeline mapping machinery deployment and manpower shifts against active maintenance blocks"
+            >
+              <CalendarClock className="w-4 h-4 text-emerald-400" />
+              <span>Resource Gantt Timeline</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">
+                SCHEDULE MAP
+              </span>
+            </button>
+
             <button
               id="header-crew-fatigue-btn"
               onClick={() => {
@@ -1714,6 +1761,23 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
             </button>
 
             <button
+              id="tab-resource-gantt-timeline"
+              data-testid="tab-resource-gantt-timeline"
+              onClick={() => setActiveTab('TIMELINE')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
+                activeTab === 'TIMELINE'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-slate-800/60 text-emerald-300 hover:text-emerald-200 hover:bg-slate-800'
+              }`}
+            >
+              <CalendarClock className="w-4 h-4 text-emerald-400" />
+              <span>Resource Gantt Timeline</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">
+                SCHEDULE MAP
+              </span>
+            </button>
+
+            <button
               id="tab-crew-fatigue-predictor"
               onClick={() => setActiveTab('FATIGUE')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
@@ -1879,6 +1943,22 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
             <CrewFatiguePredictorModule
               onRosterUpdated={reloadData}
               initialCorridorFilter={filterCorridor !== 'ALL' ? filterCorridor : undefined}
+            />
+          </div>
+        ) : activeTab === 'TIMELINE' ? (
+          <div className="p-4 md:p-6 bg-[#080d1e]">
+            <ResourceGanttTimeline
+              corridors={corridors}
+              blocks={blocks}
+              machinery={machinery}
+              gangs={gangs}
+              conflicts={conflicts}
+              initialCorridorId={filterCorridor !== 'ALL' && filterCorridor !== 'CENTRAL_DEPOT' ? filterCorridor : undefined}
+              initialShift={selectedShift}
+              onNavigateToTimeline={onNavigateToTimeline}
+              onNavigateToConflicts={onNavigateToConflicts}
+              onReallocateMachinery={handleGanttReallocateMachinery}
+              onReallocateGang={handleGanttReallocateGang}
             />
           </div>
         ) : (
