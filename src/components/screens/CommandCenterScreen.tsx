@@ -23,6 +23,7 @@ import {
   Zap,
   ArrowUpRight,
   BellRing,
+  BellOff,
   AlertCircle,
   Sliders,
   X,
@@ -60,6 +61,9 @@ import { ValidationResult, Corridor, OptimizedBlock, BlockRequest, Defect, Asset
 import { mockStore } from '../../services/api';
 import { CommandCenterMapPreview } from '../common/CommandCenterMapPreview';
 import { PredictiveMaintenancePanel } from '../predictive/PredictiveMaintenancePanel';
+import { CorridorPredictiveHealthScore } from '../predictive/CorridorPredictiveHealthScore';
+import { PredictiveRiskAlertBanner } from '../predictive/PredictiveRiskAlertBanner';
+import { predictiveRiskNotificationService } from '../../services/predictiveRiskNotificationService';
 import { SustainabilityDashboard } from '../sustainability/SustainabilityDashboard';
 import { CorridorDigitalTwin } from '../digitaltwin/CorridorDigitalTwin';
 import { NetworkResilienceCard } from '../resilience/NetworkResilienceCard';
@@ -114,6 +118,28 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
   const [mapFocusTarget, setMapFocusTarget] = useState<{ type: 'BLOCK' | 'ASSET' | 'DEFECT'; id: string } | null>(null);
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState<boolean>(false);
   const [rescheduleBlockId, setRescheduleBlockId] = useState<string | null>(null);
+
+  // Predictive Risk Notifications Toggle State
+  const [isPredictiveNotificationsEnabled, setIsPredictiveNotificationsEnabled] = useState<boolean>(() =>
+    predictiveRiskNotificationService.getIsEnabled()
+  );
+
+  // Sync state with notification service
+  React.useEffect(() => {
+    const unsubscribe = predictiveRiskNotificationService.subscribe(() => {
+      setIsPredictiveNotificationsEnabled(predictiveRiskNotificationService.getIsEnabled());
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleTogglePredictiveNotifications = async () => {
+    const nextState = !isPredictiveNotificationsEnabled;
+    predictiveRiskNotificationService.setIsEnabled(nextState);
+    setIsPredictiveNotificationsEnabled(nextState);
+    if (nextState) {
+      await predictiveRiskNotificationService.requestPermission();
+    }
+  };
 
   // Dynamic Maintenance Efficiency calculations
   const corridorEfficiencyData = corridors.map((c) => {
@@ -583,7 +609,10 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
   ];
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto relative">
+      {/* FLOATING PREDICTIVE RISK BROWSER ALERT BANNER */}
+      <PredictiveRiskAlertBanner onNavigate={onNavigate} />
+
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-[#0d162d] via-[#0f1b38] to-[#0c1427] p-5 rounded-xl border border-sky-900/40 shadow-lg">
         <div>
@@ -701,6 +730,49 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
             <span className="px-1.5 py-0.2 rounded text-[9px] bg-sky-500/20 text-sky-200 border border-sky-400/40 uppercase font-bold">
               Health 84%
             </span>
+          </button>
+          <button
+            id="jump-to-predictive-health-btn"
+            onClick={() => {
+              const el = document.getElementById('corridor-predictive-health-section');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-rose-950 via-slate-900 to-red-950 hover:border-rose-400/80 border border-rose-500/50 text-rose-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-rose-950/60 transition-all font-mono group cursor-pointer"
+            title="Jump to Corridor Predictive Health Score & 30-Day Degradation Radar"
+          >
+            <ShieldAlert className="w-4 h-4 text-rose-400 group-hover:animate-pulse" />
+            <span>Health Score</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-rose-500/20 text-rose-200 border border-rose-400/40 uppercase font-bold">
+              30D Trend
+            </span>
+          </button>
+          {/* TOGGLE PREDICTIVE RISK NOTIFICATIONS */}
+          <button
+            id="toggle-predictive-risk-notifications-btn"
+            onClick={handleTogglePredictiveNotifications}
+            className={`px-3.5 py-2 rounded-lg border text-xs font-semibold flex items-center gap-1.5 shadow-md transition-all font-mono group cursor-pointer ${
+              isPredictiveNotificationsEnabled
+                ? 'bg-rose-950/90 border-rose-500/80 text-rose-200 hover:border-rose-400 shadow-rose-950/60'
+                : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500'
+            }`}
+            title={
+              isPredictiveNotificationsEnabled
+                ? 'Predictive Risk Notifications are ACTIVE. Browser-based alerts will fire when corridor 30-day degradation crosses critical threshold. Click to mute.'
+                : 'Predictive Risk Notifications are MUTED. Click to enable browser alerts for critical degradation threshold breaches.'
+            }
+          >
+            {isPredictiveNotificationsEnabled ? (
+              <>
+                <BellRing className="w-4 h-4 text-rose-400 group-hover:animate-bounce" />
+                <span>Risk Alerts: ON</span>
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+              </>
+            ) : (
+              <>
+                <BellOff className="w-4 h-4 text-slate-500" />
+                <span>Risk Alerts: OFF</span>
+              </>
+            )}
           </button>
           <button
             id="jump-to-fleet-heatmap-btn"
@@ -945,6 +1017,15 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
       {/* NETWORK RESILIENCE & HEALTH MONITOR CARD */}
       <NetworkResilienceCard
         corridors={corridors}
+        blocks={blocks}
+        onNavigate={onNavigate}
+        onRefreshData={onRefreshData}
+      />
+
+      {/* CORRIDOR PREDICTIVE HEALTH SCORE & 30-DAY DEGRADATION TREND RADAR */}
+      <CorridorPredictiveHealthScore
+        corridors={corridors}
+        defects={defects}
         blocks={blocks}
         onNavigate={onNavigate}
         onRefreshData={onRefreshData}
