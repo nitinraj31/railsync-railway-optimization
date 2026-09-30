@@ -57,6 +57,11 @@ import {
   predictiveRepairForecastService,
   MaintenanceRepairForecast,
 } from '../../services/predictiveRepairForecastService';
+import { DateInspectionLogModal } from './DateInspectionLogModal';
+import {
+  corridorInspectionLogService,
+  DateInspectionReport,
+} from '../../services/corridorInspectionLogService';
 
 interface CorridorPredictiveHealthScoreProps {
   corridors: Corridor[];
@@ -156,6 +161,10 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
   const [isForecastModalOpen, setIsForecastModalOpen] = useState<boolean>(false);
   const [isGeneratingForecast, setIsGeneratingForecast] = useState<boolean>(false);
   const [currentForecast, setCurrentForecast] = useState<MaintenanceRepairForecast | null>(null);
+
+  // Date Inspection Log Drill-down Modal State
+  const [isInspectionModalOpen, setIsInspectionModalOpen] = useState<boolean>(false);
+  const [activeInspectionReport, setActiveInspectionReport] = useState<DateInspectionReport | null>(null);
 
   // Track Segment Defect Mini-Heatmap State
   const [selectedHeatmapSegmentId, setSelectedHeatmapSegmentId] = useState<string | null>(null);
@@ -1294,6 +1303,22 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
     }
   };
 
+  // Drill-down into detailed date inspection log for specific data point
+  const handleOpenDateInspectionModal = (point: DayDegradationPoint) => {
+    if (!activeCorridorHealth) return;
+    const report = corridorInspectionLogService.getDateInspectionReport(
+      point.dateStr,
+      point.dayNumber,
+      activeCorridorHealth.corridor,
+      point.degradationIndex,
+      point.healthScore,
+      criticalThreshold,
+      point.isProjected
+    );
+    setActiveInspectionReport(report);
+    setIsInspectionModalOpen(true);
+  };
+
   // Compute specific risk driver breakdown data for the horizontal stacked bar chart
   const riskDriversData = useMemo(() => {
     // 1. Cross-corridor comparative driver breakdown
@@ -1365,8 +1390,8 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
 
     // 2. Selected Corridor 30-Day Evolution (by 4 weeks + 7d projection)
     const selectedItem = activeCorridorHealth;
-    const isFreightHeavy = selectedItem?.corridor.id === 'C003';
-    const isHighSpeed = selectedItem?.corridor.id === 'C002';
+    const isFreightHeavy = selectedItem?.corridor?.id === 'C003';
+    const isHighSpeed = selectedItem?.corridor?.id === 'C002';
     const totalTdi = selectedItem?.currentTDI || 60;
 
     const evolutionPoints = [
@@ -1445,7 +1470,7 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
 
     // 3. Highlighted metrics for current corridor
     const currentCorridorRow = corridorsComparison.find(
-      (c) => c.corridorId === selectedItem?.corridor.id
+      (c) => c.corridorId === selectedItem?.corridor?.id
     ) || corridorsComparison[0];
 
     return {
@@ -2405,6 +2430,23 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
                       <Sparkles className="w-3 h-3 text-purple-300 animate-pulse" />
                       <span>AI Repair Forecast</span>
                     </button>
+
+                    <span className="text-slate-700">|</span>
+                    {/* DRILL DOWN DATE INSPECTION LOGS QUICK BUTTON */}
+                    <button
+                      id="drill-down-inspection-logs-btn"
+                      onClick={() => {
+                        const targetPoint =
+                          displayedTrendData.find((p) => p.dayNumber === 30) ||
+                          displayedTrendData[displayedTrendData.length - 1];
+                        if (targetPoint) handleOpenDateInspectionModal(targetPoint);
+                      }}
+                      className="px-2.5 py-0.5 rounded flex items-center gap-1.5 text-[11px] font-bold transition-all border border-sky-500/80 bg-gradient-to-r from-sky-950 to-blue-950 text-sky-200 hover:text-white hover:border-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.25)] cursor-pointer"
+                      title="Drill down into detailed inspection logs, defect locations, and 5-inspection severity trend sparklines"
+                    >
+                      <Calendar className="w-3 h-3 text-sky-400" />
+                      <span>Inspection Logs Drill-Down</span>
+                    </button>
                   </div>
                 </div>
 
@@ -2443,6 +2485,13 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
                     <LineChart
                       data={displayedTrendData}
                       margin={{ top: 10, right: 20, left: -10, bottom: 5 }}
+                      onClick={(e: any) => {
+                        if (e && e.activePayload && e.activePayload.length) {
+                          const point = e.activePayload[0].payload as DayDegradationPoint;
+                          handleOpenDateInspectionModal(point);
+                        }
+                      }}
+                      className="cursor-pointer"
                     >
                       <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.8} />
                       <XAxis
@@ -2692,6 +2741,14 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
                                       <span className="italic">{data.maintenanceCycleNote}</span>
                                     </div>
                                   )}
+
+                                  {/* CLICK-TO-DRILLDOWN CALLOUT */}
+                                  <div className="mt-2 pt-2 border-t border-slate-800/80">
+                                    <div className="text-center text-[10px] text-cyan-300 font-bold bg-cyan-950/80 border border-cyan-700/80 rounded py-1 px-2 flex items-center justify-center gap-1.5 shadow-sm">
+                                      <ExternalLink className="w-3 h-3 text-cyan-400" />
+                                      <span>Click data point to inspect detailed logs &amp; 5-log sparklines</span>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -2739,10 +2796,12 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
                                     key={`crit-${payload.dayNumber}`}
                                     cx={cx}
                                     cy={cy}
-                                    r={3.5}
+                                    r={4}
                                     fill="#f43f5e"
                                     stroke="#fff"
                                     strokeWidth={1.5}
+                                    className="cursor-pointer hover:scale-125 transition-transform"
+                                    onClick={() => handleOpenDateInspectionModal(payload)}
                                   />
                                 );
                               }
@@ -2751,12 +2810,25 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
                                   key={`norm-${payload.dayNumber}`}
                                   cx={cx}
                                   cy={cy}
-                                  r={2}
+                                  r={2.5}
                                   fill="#f43f5e"
+                                  className="cursor-pointer hover:scale-125 transition-transform"
+                                  onClick={() => handleOpenDateInspectionModal(payload)}
                                 />
                               );
                             }}
-                            activeDot={{ r: 6, fill: '#f43f5e', stroke: '#fff', strokeWidth: 2 }}
+                            activeDot={{
+                              r: 6.5,
+                              fill: '#f43f5e',
+                              stroke: '#fff',
+                              strokeWidth: 2,
+                              cursor: 'pointer',
+                              onClick: (_: any, payload: any) => {
+                                if (payload && payload.payload) {
+                                  handleOpenDateInspectionModal(payload.payload as DayDegradationPoint);
+                                }
+                              },
+                            }}
                           />
 
                           {/* 2. DASHED CONTINUATION LINE: 7-Day Projected Trend based on Historical Maintenance Cycles */}
@@ -2776,14 +2848,27 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
                                   key={`proj-${payload.dayNumber}`}
                                   cx={cx}
                                   cy={cy}
-                                  r={3.5}
+                                  r={4}
                                   fill="#c084fc"
                                   stroke="#581c87"
                                   strokeWidth={1.5}
+                                  className="cursor-pointer hover:scale-125 transition-transform"
+                                  onClick={() => handleOpenDateInspectionModal(payload)}
                                 />
                               );
                             }}
-                            activeDot={{ r: 6, fill: '#c084fc', stroke: '#fff', strokeWidth: 2 }}
+                            activeDot={{
+                              r: 6.5,
+                              fill: '#c084fc',
+                              stroke: '#fff',
+                              strokeWidth: 2,
+                              cursor: 'pointer',
+                              onClick: (_: any, payload: any) => {
+                                if (payload && payload.payload) {
+                                  handleOpenDateInspectionModal(payload.payload as DayDegradationPoint);
+                                }
+                              },
+                            }}
                           />
 
                           {/* 3. Track Geometry Index Reference Line */}
@@ -2843,12 +2928,25 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
                                   key={`health-norm-${payload.dayNumber}`}
                                   cx={cx}
                                   cy={cy}
-                                  r={2}
+                                  r={2.5}
                                   fill="#10b981"
+                                  className="cursor-pointer hover:scale-125 transition-transform"
+                                  onClick={() => handleOpenDateInspectionModal(payload)}
                                 />
                               );
                             }}
-                            activeDot={{ r: 6, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
+                            activeDot={{
+                              r: 6.5,
+                              fill: '#10b981',
+                              stroke: '#fff',
+                              strokeWidth: 2,
+                              cursor: 'pointer',
+                              onClick: (_: any, payload: any) => {
+                                if (payload && payload.payload) {
+                                  handleOpenDateInspectionModal(payload.payload as DayDegradationPoint);
+                                }
+                              },
+                            }}
                           />
 
                           {/* 2. DASHED CONTINUATION LINE: 7-Day Projected Health Score based on Maintenance Cycles */}
@@ -2872,10 +2970,23 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
                                   fill="#34d399"
                                   stroke="#065f46"
                                   strokeWidth={1.5}
+                                  className="cursor-pointer hover:scale-125 transition-transform"
+                                  onClick={() => handleOpenDateInspectionModal(payload)}
                                 />
                               );
                             }}
-                            activeDot={{ r: 6, fill: '#34d399', stroke: '#fff', strokeWidth: 2 }}
+                            activeDot={{
+                              r: 6.5,
+                              fill: '#34d399',
+                              stroke: '#fff',
+                              strokeWidth: 2,
+                              cursor: 'pointer',
+                              onClick: (_: any, payload: any) => {
+                                if (payload && payload.payload) {
+                                  handleOpenDateInspectionModal(payload.payload as DayDegradationPoint);
+                                }
+                              },
+                            }}
                           />
 
                           {/* 3. HISTORICAL SEASONAL PEAK HEALTH SCORE LINE */}
@@ -2953,6 +3064,20 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
                   >
                     +{activeCorridorHealth.degradationRate30Days}% TDI
                   </span>
+                </div>
+                <div className="w-full mt-1.5 pt-1.5 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-cyan-300">
+                  <span className="flex items-center gap-1 font-semibold">
+                    <span>💡 Tip: Click any data point on the chart to drill down into detailed inspection logs, 5-log defect sparklines &amp; schedule follow-ups.</span>
+                  </span>
+                  <button
+                    onClick={() => {
+                      const todayPoint = displayedTrendData.find((p) => p.dayNumber === 30) || displayedTrendData[displayedTrendData.length - 1];
+                      if (todayPoint) handleOpenDateInspectionModal(todayPoint);
+                    }}
+                    className="text-cyan-400 hover:text-white underline font-bold transition-colors cursor-pointer shrink-0 ml-2"
+                  >
+                    Inspect Date Log ➔
+                  </button>
                 </div>
               </div>
             </div>
@@ -3385,6 +3510,17 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
         isLoading={isGeneratingForecast}
         onNavigate={onNavigate}
       />
+
+      {/* DATE INSPECTION LOG & DEFECT SEVERITY DRILL-DOWN MODAL */}
+      {activeCorridorHealth && (
+        <DateInspectionLogModal
+          isOpen={isInspectionModalOpen}
+          onClose={() => setIsInspectionModalOpen(false)}
+          report={activeInspectionReport}
+          corridor={activeCorridorHealth.corridor}
+          onNavigate={onNavigate}
+        />
+      )}
     </div>
   );
 };

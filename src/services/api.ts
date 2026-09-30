@@ -311,6 +311,31 @@ class RailSyncStore {
     return this.maintenanceTasks;
   }
 
+  public addMaintenanceTask(task: any): any {
+    const newTask = {
+      id: task.id || `TASK-${Date.now()}`,
+      taskId: task.taskId || `TSK-${Math.floor(1000 + Math.random() * 9000)}`,
+      assetId: task.assetId || 'TRK-001',
+      department: task.department || 'CIVIL_ENGINEERING',
+      taskType: task.taskType || 'TRACK_MAINTENANCE',
+      description: task.description || 'Follow-up maintenance task',
+      corridorId: task.corridorId || 'C001',
+      durationMinutes: task.durationMinutes || 120,
+      priority: task.priority || 'HIGH',
+      status: task.status || 'SCHEDULED',
+      preferredTimeWindow: task.preferredTimeWindow || '01:30 - 04:00 (Night Block)',
+      requestedDate: task.requestedDate || new Date().toISOString().split('T')[0],
+      ...task,
+    };
+    this.maintenanceTasks.unshift(newTask);
+    try {
+      localStorage.setItem(STORAGE_KEYS.MAINTENANCE_TASKS, JSON.stringify(this.maintenanceTasks));
+    } catch {
+      // ignore in environments without localStorage
+    }
+    return newTask;
+  }
+
   public getAuditLogs(): AuditLog[] {
     return this.auditLogs;
   }
@@ -2121,6 +2146,10 @@ export const getTrains = getTrainSchedule;
 
 export async function getMaintenanceTasks(): Promise<any[]> {
   return apiRequest<any[]>('/api/tasks');
+}
+
+export async function addMaintenanceTask(task: any): Promise<any> {
+  return mockStore.addMaintenanceTask(task);
 }
 
 export async function getPublicationState(): Promise<PublicationInfo> {
