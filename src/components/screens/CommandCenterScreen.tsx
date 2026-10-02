@@ -62,6 +62,7 @@ import { mockStore } from '../../services/api';
 import { CommandCenterMapPreview } from '../common/CommandCenterMapPreview';
 import { PredictiveMaintenancePanel } from '../predictive/PredictiveMaintenancePanel';
 import { CorridorPredictiveHealthScore } from '../predictive/CorridorPredictiveHealthScore';
+import { CrewFatigueTopologyMap } from '../predictive/CrewFatigueTopologyMap';
 import { PredictiveRiskAlertBanner } from '../predictive/PredictiveRiskAlertBanner';
 import { predictiveRiskNotificationService } from '../../services/predictiveRiskNotificationService';
 import { SustainabilityDashboard } from '../sustainability/SustainabilityDashboard';
@@ -1027,6 +1028,13 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
         corridors={corridors}
         defects={defects}
         blocks={blocks}
+        onNavigate={onNavigate}
+        onRefreshData={onRefreshData}
+      />
+
+      {/* PREDICTED CREW FATIGUE HOTSPOTS & CORRIDOR TOPOLOGY MAP */}
+      <CrewFatigueTopologyMap
+        corridors={corridors}
         onNavigate={onNavigate}
         onRefreshData={onRefreshData}
       />

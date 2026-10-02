@@ -498,6 +498,7 @@ export default function App() {
               trains={trains}
               corridors={corridors}
               onNavigateToConflict={handleNavigateToConflict}
+              onRefreshData={refreshAllData}
             />
           )}
 

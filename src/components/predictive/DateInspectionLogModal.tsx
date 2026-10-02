@@ -61,9 +61,9 @@ export const DateInspectionLogModal: React.FC<DateInspectionLogModalProps> = ({
 
   // Safe fallback if corridor object is not yet fully loaded
   const activeCorridor: Corridor = corridor || {
-    id: report.corridorId,
-    code: report.corridorCode,
-    name: report.corridorName,
+    id: report?.corridorId || 'C001',
+    code: report?.corridorCode || 'C001',
+    name: report?.corridorName || 'High Density Corridor',
     stationFrom: 'Origin Terminal',
     stationTo: 'Destination Terminal',
     lengthKm: 45,

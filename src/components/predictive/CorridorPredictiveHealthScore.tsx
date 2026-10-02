@@ -48,6 +48,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { Corridor, Defect, OptimizedBlock } from '../../types';
+import { mockStore } from '../../services/api';
 import {
   predictiveRiskNotificationService,
   PredictiveRiskAlert,
@@ -138,16 +139,21 @@ export interface DayDegradationPoint {
 }
 
 export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthScoreProps> = ({
-  corridors,
-  defects,
+  corridors = mockStore.getCorridors(),
+  defects = mockStore.getDefects(),
   blocks = [],
   onNavigate,
   onRefreshData,
 }) => {
+  const safeCorridors = useMemo(() => {
+    if (corridors && Array.isArray(corridors) && corridors.length > 0) return corridors;
+    return mockStore.getCorridors();
+  }, [corridors]);
+
   // State
-  const [selectedCorridorId, setSelectedCorridorId] = useState<string>(
-    corridors.length > 0 ? corridors[0].id : 'C001'
-  );
+  const [selectedCorridorId, setSelectedCorridorId] = useState<string>(() => {
+    return (corridors && corridors.length > 0 ? corridors[0].id : 'C001');
+  });
   const [criticalThreshold, setCriticalThreshold] = useState<number>(70); // TDI threshold (70+) triggers High Risk badge
   const [timeWindowDays, setTimeWindowDays] = useState<14 | 30>(30);
   const [filterSeverity, setFilterSeverity] = useState<'ALL' | 'HIGH_RISK_ONLY' | 'EXCEEDING_THRESHOLD'>('ALL');
@@ -227,16 +233,18 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
   };
 
   const handleTriggerTestAlert = () => {
-    const activeCorr = corridors.find((c) => c.id === selectedCorridorId) || corridors[0];
-    predictiveRiskNotificationService.triggerTestAlert(activeCorr);
-    setNotificationToast(`Test Browser Alert dispatched for ${activeCorr?.name || 'Corridor'}`);
-    setTimeout(() => setNotificationToast(null), 4000);
+    const activeCorr = safeCorridors.find((c) => c.id === selectedCorridorId) || safeCorridors[0];
+    if (activeCorr) {
+      predictiveRiskNotificationService.triggerTestAlert(activeCorr);
+      setNotificationToast(`Test Browser Alert dispatched for ${activeCorr?.name || 'Corridor'}`);
+      setTimeout(() => setNotificationToast(null), 4000);
+    }
   };
 
   // Compute Predictive Health Data for each corridor
   const corridorHealthAnalytics = useMemo(() => {
-    return corridors.map((corridor) => {
-      const corrDefects = defects.filter((d) => d.corridorId === corridor.id);
+    return safeCorridors.map((corridor) => {
+      const corrDefects = (defects || []).filter((d) => d.corridorId === corridor.id);
       const criticalDefects = corrDefects.filter((d) => d.severity === 'CRITICAL');
       const highDefects = corrDefects.filter((d) => d.severity === 'HIGH');
       const mediumDefects = corrDefects.filter((d) => d.severity === 'MEDIUM');
@@ -675,19 +683,22 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
         segments,
       };
     });
-  }, [corridors, defects, criticalThreshold, selectedBaselineYear]);
+  }, [safeCorridors, defects, criticalThreshold, selectedBaselineYear]);
 
   // Selected Corridor Health Info
   const activeCorridorHealth = useMemo(() => {
+    if (!corridorHealthAnalytics || corridorHealthAnalytics.length === 0) return null;
     return (
-      corridorHealthAnalytics.find((c) => c.corridor.id === selectedCorridorId) ||
-      corridorHealthAnalytics[0]
+      corridorHealthAnalytics.find((c) => c?.corridor?.id === selectedCorridorId) ||
+      corridorHealthAnalytics[0] ||
+      null
     );
   }, [corridorHealthAnalytics, selectedCorridorId]);
 
   // Filtered Corridors for Top Grid
   const filteredCorridors = useMemo(() => {
-    return corridorHealthAnalytics.filter((item) => {
+    return (corridorHealthAnalytics || []).filter((item) => {
+      if (!item || !item.corridor) return false;
       // Risk filter
       if (filterSeverity === 'HIGH_RISK_ONLY' && item.status !== 'HIGH_RISK') return false;
       if (filterSeverity === 'EXCEEDING_THRESHOLD' && !item.exceedsThreshold) return false;
@@ -695,10 +706,10 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
       // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchName = item.corridor.name.toLowerCase().includes(q);
-        const matchCode = (item.corridor.code || item.corridor.id).toLowerCase().includes(q);
-        const matchSegment = item.segments.some(
-          (s) => s.locationName.toLowerCase().includes(q) || s.chainage.toLowerCase().includes(q)
+        const matchName = (item.corridor.name || '').toLowerCase().includes(q);
+        const matchCode = (item.corridor.code || item.corridor.id || '').toLowerCase().includes(q);
+        const matchSegment = (item.segments || []).some(
+          (s) => (s.locationName || '').toLowerCase().includes(q) || (s.chainage || '').toLowerCase().includes(q)
         );
         return matchName || matchCode || matchSegment;
       }
@@ -760,7 +771,7 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
 
   // Corridor Track Segments Mini-Heatmap Data Model
   const corridorTrackSegments = useMemo<TrackHeatmapSegment[]>(() => {
-    if (!activeCorridorHealth) return [];
+    if (!activeCorridorHealth || !activeCorridorHealth.corridor) return [];
     const cId = activeCorridorHealth.corridor.id;
 
     if (cId === 'C001') {
@@ -1199,7 +1210,7 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
     }
 
     // Default / C002 / Generic corridors
-    const len = activeCorridorHealth.corridor.lengthKm || 60;
+    const len = activeCorridorHealth?.corridor?.lengthKm || 60;
     const step = len / 6;
     return Array.from({ length: 6 }).map((_, idx) => {
       const startKm = +(idx * step).toFixed(1);
@@ -1211,7 +1222,7 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
         id: `${cId}-SEG-${idx + 1}`,
         segmentIndex: idx + 1,
         chainageLabel: `KM ${startKm} – KM ${endKm}`,
-        landmark: idx === 0 ? `${activeCorridorHealth.corridor.stationFrom} Approach` : idx === 5 ? `${activeCorridorHealth.corridor.stationTo} Outer Yard` : `Mid-Corridor Section ${idx + 1}`,
+        landmark: idx === 0 ? `${activeCorridorHealth?.corridor?.stationFrom || 'Start'} Approach` : idx === 5 ? `${activeCorridorHealth?.corridor?.stationTo || 'End'} Outer Yard` : `Mid-Corridor Section ${idx + 1}`,
         trackLine: 'Up / Dn Main Line',
         riskLevel: isCritical ? 'CRITICAL' : isHigh ? 'HIGH' : idx % 2 === 0 ? 'MEDIUM' : 'CLEAR',
         riskScorePercent: isCritical ? 88 : isHigh ? 70 : 40,
@@ -1264,14 +1275,14 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
   useEffect(() => {
     if (!notificationsEnabled) return;
 
-    corridorHealthAnalytics.forEach((item) => {
-      if (item.exceedsThreshold) {
+    (corridorHealthAnalytics || []).forEach((item) => {
+      if (item && item.corridor && item.exceedsThreshold) {
         predictiveRiskNotificationService.notifyThresholdBreach({
           corridor: item.corridor,
           currentTDI: item.currentTDI,
           threshold: criticalThreshold,
           degradationRate: item.degradationRate30Days,
-          segmentName: item.segments[0]?.chainage || 'Track Critical Segment',
+          segmentName: item.segments?.[0]?.chainage || 'Track Critical Segment',
           source: 'THRESHOLD_BREACH',
         });
       }
@@ -1280,7 +1291,7 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
 
   // Trigger AI-generated Maintenance Repair Forecast
   const handleTriggerRepairForecast = async () => {
-    if (!activeCorridorHealth) return;
+    if (!activeCorridorHealth || !activeCorridorHealth.corridor) return;
     setIsForecastModalOpen(true);
     setIsGeneratingForecast(true);
     try {
@@ -1305,7 +1316,7 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
 
   // Drill-down into detailed date inspection log for specific data point
   const handleOpenDateInspectionModal = (point: DayDegradationPoint) => {
-    if (!activeCorridorHealth) return;
+    if (!activeCorridorHealth || !activeCorridorHealth.corridor) return;
     const report = corridorInspectionLogService.getDateInspectionReport(
       point.dateStr,
       point.dayNumber,
@@ -1322,8 +1333,8 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
   // Compute specific risk driver breakdown data for the horizontal stacked bar chart
   const riskDriversData = useMemo(() => {
     // 1. Cross-corridor comparative driver breakdown
-    const corridorsComparison = corridorHealthAnalytics.map((item) => {
-      const cId = item.corridor.id;
+    const corridorsComparison = (corridorHealthAnalytics || []).map((item) => {
+      const cId = item.corridor?.id || 'C001';
       const tdi = item.currentTDI;
 
       let tgPct = 28;
@@ -1361,8 +1372,8 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
 
       if (driverUnit === 'PERCENT') {
         return {
-          name: `${item.corridor.code || cId}`,
-          fullName: item.corridor.name,
+          name: `${item.corridor?.code || cId}`,
+          fullName: item.corridor?.name || cId,
           corridorId: cId,
           trackGeometry: tgPct,
           fastenerIntegrity: fiPct,
@@ -1374,8 +1385,8 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
         };
       } else {
         return {
-          name: `${item.corridor.code || cId}`,
-          fullName: item.corridor.name,
+          name: `${item.corridor?.code || cId}`,
+          fullName: item.corridor?.name || cId,
           corridorId: cId,
           trackGeometry: Number(((tgPct / 100) * tdi).toFixed(1)),
           fastenerIntegrity: Number(((fiPct / 100) * tdi).toFixed(1)),
@@ -1940,7 +1951,7 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
       </div>
 
       {/* SELECTED CORRIDOR DETAILED INSPECTION: 30-DAY DEGRADATION TREND CHART & HIGH-RISK SEGMENTS */}
-      {activeCorridorHealth && (
+      {activeCorridorHealth && activeCorridorHealth.corridor && (
         <div className="bg-slate-950/80 rounded-xl p-5 border border-sky-900/60 shadow-xl space-y-5">
           {/* Active Corridor Banner with PROMINENT 'High Risk' Status Badge */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-800">
@@ -3512,7 +3523,7 @@ export const CorridorPredictiveHealthScore: React.FC<CorridorPredictiveHealthSco
       />
 
       {/* DATE INSPECTION LOG & DEFECT SEVERITY DRILL-DOWN MODAL */}
-      {activeCorridorHealth && (
+      {activeCorridorHealth && activeCorridorHealth.corridor && (
         <DateInspectionLogModal
           isOpen={isInspectionModalOpen}
           onClose={() => setIsInspectionModalOpen(false)}

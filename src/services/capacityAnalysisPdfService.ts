@@ -862,7 +862,7 @@ export function generateCapacityAnalysisPdfDoc(options: CapacityAnalysisPdfOptio
 export function downloadCapacityAnalysisPdf(options: CapacityAnalysisPdfOptions, filename?: string): void {
   try {
     const doc = generateCapacityAnalysisPdfDoc(options);
-    const corridorId = options.corridor?.id || 'ALL_CORRIDORS';
+    const corridorId = options?.corridor?.id || 'ALL_CORRIDORS';
     const dateStr = new Date().toISOString().slice(0, 10);
     const targetFilename = filename || `Capacity_Analysis_Report_${corridorId}_${dateStr}.pdf`;
     doc.save(targetFilename);

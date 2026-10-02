@@ -2314,7 +2314,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
                   <div>
                     <span className="font-bold text-rose-200">30-DAY CRITICALITY FORECAST ACTIVE: </span>
                     <span className="text-slate-300">
-                      Displaying <strong>{filteredDefects.length} non-critical defect(s)</strong> calculated by asset failure rates &amp; corridor aging to cross statutory critical thresholds within 30 days ({predictiveRiskBatch.highestRiskCorridor.corridorName} is highest risk corridor).
+                      Displaying <strong>{filteredDefects.length} non-critical defect(s)</strong> calculated by asset failure rates &amp; corridor aging to cross statutory critical thresholds within 30 days ({predictiveRiskBatch?.highestRiskCorridor?.corridorName || 'Selected Network Corridor'} is highest risk corridor).
                     </span>
                   </div>
                 </div>

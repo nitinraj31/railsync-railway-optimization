@@ -114,7 +114,7 @@ class PredictiveRiskNotificationService {
     bypassCooldown?: boolean;
     source?: 'THRESHOLD_BREACH' | 'SIMULATED_TEST' | 'USFD_ACCELERATION';
   }): PredictiveRiskAlert | null {
-    if (!this.isEnabled || !params.corridor) return null;
+    if (!this.isEnabled || !params || !params.corridor) return null;
 
     const corridorId = params.corridor.id;
     const now = Date.now();
