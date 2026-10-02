@@ -49,6 +49,7 @@ import {
   resolveAllRemainingConflicts,
   simulateWhatIfDelay,
   batchResolveSelectedConflicts,
+  batchUpdateConflictStatus,
   generateCautionOrderMemo,
   getDrmSafetyAuditReport,
   getPwiDispatchMessage,
@@ -60,6 +61,7 @@ import {
   publishSchedule,
   getPublicationState,
 } from '../../services/api';
+import { railwayAudio } from '../../services/railwayAudio';
 import { WhatIfSimulatorModal } from '../modals/WhatIfSimulatorModal';
 import { CautionOrderModal } from '../modals/CautionOrderModal';
 import { DrmAuditReportModal } from '../modals/DrmAuditReportModal';
@@ -115,8 +117,14 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [corridorFilter, setCorridorFilter] = useState<string>('ALL');
-  const [activeTab, setActiveTab] = useState<'OPEN' | 'BATCH_GROUPS' | 'RESOLVED' | 'CLOSED'>('OPEN');
+  const [activeTab, setActiveTab] = useState<'OPEN' | 'PENDING_REVIEW' | 'BATCH_GROUPS' | 'RESOLVED' | 'CLOSED'>('OPEN');
   const [openConflictsViewMode, setOpenConflictsViewMode] = useState<'TABLE' | 'CLUSTERS'>('TABLE');
+
+  // Checkbox-based batch action menu states
+  const [isBatchActionMenuOpen, setIsBatchActionMenuOpen] = useState(false);
+  const batchMenuRef = useRef<HTMLDivElement>(null);
+  const [isMovingStatus, setIsMovingStatus] = useState(false);
+  const [batchActionNotification, setBatchActionNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
   // Auto-Archive Resolved state & publication tracking
   const [autoArchiveResolved, setAutoArchiveResolved] = useState<boolean>(true);
@@ -173,6 +181,12 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
         !overviewDropdownRef.current.contains(target)
       ) {
         setIsOverviewDropdownOpen(false);
+      }
+      if (
+        batchMenuRef.current &&
+        !batchMenuRef.current.contains(target)
+      ) {
+        setIsBatchActionMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -437,8 +451,9 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
     }
   };
 
-  // Filter open conflicts vs resolved vs closed (database archive)
+  // Filter open conflicts vs pending review vs resolved vs closed (database archive)
   const openConflicts = useMemo(() => conflicts.filter((c) => c.status === 'OPEN'), [conflicts]);
+  const pendingReviewConflicts = useMemo(() => conflicts.filter((c) => c.status === 'PENDING_REVIEW'), [conflicts]);
   const resolvedConflicts = useMemo(() => conflicts.filter((c) => c.status === 'RESOLVED'), [conflicts]);
   const closedConflicts = useMemo(() => conflicts.filter((c) => c.status === 'CLOSED'), [conflicts]);
 
@@ -473,6 +488,30 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
       return true;
     });
   }, [openConflicts, severityToggles, corridorFilter, searchQuery]);
+
+  // Filtered pending review conflicts
+  const filteredPendingReviewConflicts = useMemo(() => {
+    return pendingReviewConflicts.filter((c) => {
+      if (!severityToggles[c.severity]) {
+        return false;
+      }
+      if (corridorFilter !== 'ALL' && c.corridorId !== corridorFilter) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase().trim();
+        const matchesId = c.conflictId.toLowerCase().includes(query);
+        const matchesBlock = c.blockId.toLowerCase().includes(query);
+        const matchesTrain = c.trainNumber.toLowerCase().includes(query) || c.trainName.toLowerCase().includes(query);
+        const matchesCorridor = c.corridorId.toLowerCase().includes(query);
+        const matchesDesc = c.description.toLowerCase().includes(query);
+        const matchesTask = (c.taskType || '').toLowerCase().includes(query);
+        const matchesNotes = (c.resolutionNotes || '').toLowerCase().includes(query);
+        return matchesId || matchesBlock || matchesTrain || matchesCorridor || matchesDesc || matchesTask || matchesNotes;
+      }
+      return true;
+    });
+  }, [pendingReviewConflicts, severityToggles, corridorFilter, searchQuery]);
 
   // Filtered resolved conflicts
   const filteredResolvedConflicts = useMemo(() => {
@@ -642,26 +681,71 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
     );
   };
 
+  const currentVisibleConflicts =
+    activeTab === 'PENDING_REVIEW'
+      ? filteredPendingReviewConflicts
+      : filteredOpenConflicts;
+
   const handleSelectAllVisible = () => {
-    if (selectedConflictIds.length === filteredOpenConflicts.length) {
+    if (
+      selectedConflictIds.length === currentVisibleConflicts.length &&
+      currentVisibleConflicts.length > 0
+    ) {
       setSelectedConflictIds([]);
     } else {
-      setSelectedConflictIds(filteredOpenConflicts.map((c) => c.conflictId));
+      setSelectedConflictIds(currentVisibleConflicts.map((c) => c.conflictId));
+    }
+  };
+
+  const handleSelectAllCritical = () => {
+    const criticals = currentVisibleConflicts.filter((c) => c.severity === 'CRITICAL');
+    setSelectedConflictIds(criticals.map((c) => c.conflictId));
+  };
+
+  const handleBatchMoveToStatus = async (
+    targetStatus: 'PENDING_REVIEW' | 'RESOLVED' | 'OPEN',
+    reason?: string
+  ) => {
+    if (selectedConflictIds.length === 0) return;
+    setIsMovingStatus(true);
+    try {
+      railwayAudio.playBeep(targetStatus === 'RESOLVED' ? 880 : 720, 0.04);
+      const res = await batchUpdateConflictStatus(selectedConflictIds, targetStatus, {
+        reason:
+          reason ||
+          `Batch updated to ${targetStatus} via Conflict Management batch action menu by Senior Controller.`,
+      });
+      if (res.success) {
+        railwayAudio.playStationChime();
+        const statusLabel =
+          targetStatus === 'PENDING_REVIEW'
+            ? "'Pending Review'"
+            : targetStatus === 'RESOLVED'
+            ? "'Resolved'"
+            : "'Open'";
+        setBatchActionNotification({
+          message: `Batch Action Success: Successfully moved ${res.updatedCount} selected conflict(s) to ${statusLabel} state.`,
+          type: 'success',
+        });
+        setTimeout(() => setBatchActionNotification(null), 5500);
+        setSelectedConflictIds([]);
+        onRefreshConflicts();
+      }
+    } catch (err) {
+      console.error(`Failed to batch move conflicts to ${targetStatus}:`, err);
+      setBatchActionNotification({
+        message: `Failed to update conflicts to ${targetStatus}. Please verify network and try again.`,
+        type: 'error',
+      });
+      setTimeout(() => setBatchActionNotification(null), 5000);
+    } finally {
+      setIsMovingStatus(false);
+      setIsBatchActionMenuOpen(false);
     }
   };
 
   const handleBatchResolveSelected = async () => {
-    if (selectedConflictIds.length === 0) return;
-    setIsBatchResolving(true);
-    try {
-      await batchResolveSelectedConflicts(selectedConflictIds);
-      setSelectedConflictIds([]);
-      onRefreshConflicts();
-    } catch (err) {
-      console.error('Error batch resolving conflicts:', err);
-    } finally {
-      setIsBatchResolving(false);
-    }
+    await handleBatchMoveToStatus('RESOLVED');
   };
 
   const clearAllFilters = () => {
@@ -710,6 +794,209 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
           </span>
         );
     }
+  };
+
+  const renderStatusBadge = (status: Conflict['status']) => {
+    switch (status) {
+      case 'PENDING_REVIEW':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-amber-950 text-amber-300 border border-amber-600 shadow-xs">
+            <Clock className="w-3 h-3 text-amber-400 shrink-0" />
+            <span>PENDING REVIEW</span>
+          </span>
+        );
+      case 'RESOLVED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-emerald-950 text-emerald-300 border border-emerald-800 shadow-xs">
+            <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+            <span>RESOLVED</span>
+          </span>
+        );
+      case 'CLOSED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-slate-900 text-slate-400 border border-slate-700">
+            <Archive className="w-3 h-3 text-slate-400 shrink-0" />
+            <span>CLOSED</span>
+          </span>
+        );
+      case 'OPEN':
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider bg-rose-950/80 text-rose-300 border border-rose-700/80 shadow-xs">
+            <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
+            <span>OPEN</span>
+          </span>
+        );
+    }
+  };
+
+  const renderBatchActionBar = () => {
+    if (selectedConflictIds.length === 0) return null;
+
+    return (
+      <div
+        id="batch-actions-bar"
+        data-testid="batch-actions-bar"
+        className="mb-4 p-4 rounded-xl bg-gradient-to-r from-[#0b1736] via-[#102048] to-[#121c3b] border-2 border-sky-500/80 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-2xl animate-in fade-in"
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-sky-500 text-slate-950 font-bold shrink-0 shadow-md">
+            <ListChecks className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                {selectedConflictIds.length} Conflict{selectedConflictIds.length > 1 ? 's' : ''} Selected
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-900 text-sky-200 border border-sky-600 font-bold">
+                BATCH ACTION MENU
+              </span>
+            </div>
+            <p className="text-[11px] text-sky-300/90 font-mono mt-0.5">
+              Apply single-action state transitions across all checked conflicts (move to 'Pending Review' or 'Resolved').
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Action 1: Move to Pending Review */}
+          <button
+            type="button"
+            id="btn-batch-move-pending-review"
+            data-testid="btn-batch-move-pending-review"
+            onClick={() => handleBatchMoveToStatus('PENDING_REVIEW')}
+            disabled={isMovingStatus}
+            className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold text-xs font-mono flex items-center gap-1.5 cursor-pointer shadow-md shadow-amber-950/50 transition-all disabled:opacity-50"
+            title="Move all selected conflicts to 'Pending Review' state in a single action"
+          >
+            <Clock className="w-4 h-4 text-amber-100" />
+            <span>Move to 'Pending Review' ({selectedConflictIds.length})</span>
+          </button>
+
+          {/* Action 2: Move to Resolved */}
+          <button
+            type="button"
+            id="btn-batch-move-resolved"
+            data-testid="btn-batch-move-resolved"
+            onClick={() => handleBatchMoveToStatus('RESOLVED')}
+            disabled={isMovingStatus}
+            className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs font-mono flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-950/50 transition-all disabled:opacity-50"
+            title="Move all selected conflicts to 'Resolved' state in a single action"
+          >
+            <CheckCircle2 className="w-4 h-4 text-emerald-100" />
+            <span>Move to 'Resolved' ({selectedConflictIds.length})</span>
+          </button>
+
+          {/* Checkbox-based Batch Action Menu Dropdown */}
+          <div className="relative" ref={batchMenuRef}>
+            <button
+              type="button"
+              id="btn-batch-action-menu"
+              data-testid="btn-batch-action-menu"
+              onClick={() => setIsBatchActionMenuOpen(!isBatchActionMenuOpen)}
+              className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-200 border border-sky-600/70 font-bold text-xs font-mono flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
+              title="Open batch action menu for state transitions and optimizations"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-sky-400" />
+              <span>Batch Actions Menu</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isBatchActionMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isBatchActionMenuOpen && (
+              <div
+                id="batch-action-menu-dropdown"
+                data-testid="batch-action-menu-dropdown"
+                className="absolute right-0 mt-1.5 w-72 rounded-xl bg-[#091124] border border-sky-600/80 shadow-2xl p-2 z-50 text-xs font-mono animate-in fade-in"
+              >
+                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                  Target State Transition ({selectedConflictIds.length} Selected)
+                </div>
+
+                <button
+                  type="button"
+                  id="menu-action-move-pending-review"
+                  onClick={() => handleBatchMoveToStatus('PENDING_REVIEW')}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-amber-950/70 text-amber-200 flex items-center gap-2.5 cursor-pointer transition-colors mt-1"
+                >
+                  <div className="p-1.5 rounded bg-amber-950 border border-amber-700 text-amber-400">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold">Move to 'Pending Review'</div>
+                    <div className="text-[10px] text-slate-400">Mark for Section Controller sign-off</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  id="menu-action-move-resolved"
+                  onClick={() => handleBatchMoveToStatus('RESOLVED')}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-emerald-950/70 text-emerald-200 flex items-center gap-2.5 cursor-pointer transition-colors mt-1"
+                >
+                  <div className="p-1.5 rounded bg-emerald-950 border border-emerald-700 text-emerald-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold">Move to 'Resolved'</div>
+                    <div className="text-[10px] text-slate-400">Assign certified alternative window</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  id="menu-action-move-open"
+                  onClick={() => handleBatchMoveToStatus('OPEN')}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-rose-950/70 text-rose-200 flex items-center gap-2.5 cursor-pointer transition-colors border-t border-slate-800/80 mt-1"
+                >
+                  <div className="p-1.5 rounded bg-rose-950 border border-rose-700 text-rose-400">
+                    <RotateCcw className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold">Revert to 'Open'</div>
+                    <div className="text-[10px] text-slate-400">Restore to active unaddressed queue</div>
+                  </div>
+                </button>
+
+                <div className="border-t border-slate-800/80 my-1 pt-1">
+                  <button
+                    type="button"
+                    id="menu-action-batch-group-offsets"
+                    onClick={() => {
+                      setIsBatchActionMenuOpen(false);
+                      setActiveTab('BATCH_GROUPS');
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-indigo-950/60 text-indigo-200 flex items-center gap-2 cursor-pointer transition-colors text-[11px]"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Group &amp; Apply AI Offsets</span>
+                  </button>
+                  <button
+                    type="button"
+                    id="menu-action-select-critical"
+                    onClick={() => {
+                      handleSelectAllCritical();
+                      setIsBatchActionMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 rounded-lg hover:bg-slate-800 text-sky-300 flex items-center gap-2 cursor-pointer transition-colors text-[11px]"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Select Critical Only</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setSelectedConflictIds([])}
+            className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono cursor-pointer transition-colors"
+          >
+            Clear Selection
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -1975,6 +2262,29 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
           </span>
         </button>
 
+        {/* PENDING REVIEW TAB */}
+        <button
+          id="tab-conflicts-pending-review"
+          data-testid="tab-conflicts-pending-review"
+          onClick={() => {
+            setActiveTab('PENDING_REVIEW');
+            setSelectedConflictIds([]);
+          }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-mono font-bold flex items-center gap-2 cursor-pointer transition-all ${
+            activeTab === 'PENDING_REVIEW'
+              ? 'bg-amber-600 text-white shadow-lg shadow-amber-950/60 border border-amber-400'
+              : 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-800'
+          }`}
+        >
+          <Clock className={`w-3.5 h-3.5 ${activeTab === 'PENDING_REVIEW' ? 'text-white' : 'text-amber-400'}`} />
+          <span>Pending Review</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+            activeTab === 'PENDING_REVIEW' ? 'bg-amber-800 text-white' : 'bg-slate-800 text-slate-300'
+          }`}>
+            {filteredPendingReviewConflicts.length} / {pendingReviewConflicts.length}
+          </span>
+        </button>
+
         {/* BATCH RESOLVE CLUSTERS TAB */}
         <button
           id="tab-conflicts-batch-groups"
@@ -2102,76 +2412,34 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
           </div>
         </div>
 
-        {/* BATCH ACTION BAR FOR MULTI-SELECT RESOLUTION */}
-        {selectedConflictIds.length > 0 && (
+        {/* BATCH ACTION NOTIFICATION & ACTION BAR */}
+        {batchActionNotification && (
           <div
-            id="batch-actions-bar"
-            data-testid="batch-actions-bar"
-            className="mb-4 p-3.5 rounded-xl bg-gradient-to-r from-sky-950 via-blue-950 to-indigo-950 border-2 border-sky-600 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl"
+            id="batch-action-notification-toast"
+            className={`mb-4 p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs font-mono animate-in fade-in ${
+              batchActionNotification.type === 'success'
+                ? 'bg-emerald-950/90 text-emerald-200 border-emerald-600 shadow-lg'
+                : 'bg-rose-950/90 text-rose-200 border-rose-600 shadow-lg'
+            }`}
           >
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-sky-500 text-slate-950 font-bold shrink-0">
-                <ListChecks className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                    {selectedConflictIds.length} Conflicts Selected for Batch Processing
-                  </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-900 text-sky-200 border border-sky-700 font-bold">
-                    BATCH ACTION
-                  </span>
-                </div>
-                <p className="text-[11px] text-sky-300 font-mono mt-0.5">
-                  Simultaneously apply top-scored candidate slots with certified headway buffers across all selected corridors.
-                </p>
-              </div>
+            <div className="flex items-center gap-2.5">
+              {batchActionNotification.type === 'success' ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+              )}
+              <span className="font-bold">{batchActionNotification.message}</span>
             </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                id="btn-batch-group-offsets"
-                onClick={() => {
-                  setActiveTab('BATCH_GROUPS');
-                }}
-                className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-700 via-indigo-700 to-sky-700 hover:from-purple-600 hover:to-sky-600 text-white font-bold text-xs font-mono flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-950/50 transition-all"
-                title="Group conflicts and apply AI-generated offsets to the entire group at once"
-              >
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>Group &amp; Apply AI Offsets</span>
-              </button>
-
-              <button
-                id="btn-batch-ai-assist"
-                data-testid="btn-batch-ai-assist"
-                onClick={() => handleOpenAiAssist(selectedConflictIds[0])}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-purple-200 border border-purple-600/70 font-bold text-xs font-mono flex items-center gap-2 cursor-pointer shadow-sm transition-all"
-                title="Use Gemini AI to propose schedule offsets for selected conflicts"
-              >
-                <Sparkles className="w-4 h-4 text-purple-300" />
-                <span>AI Assist Offsets</span>
-              </button>
-
-              <button
-                id="btn-batch-resolve"
-                data-testid="btn-batch-resolve"
-                onClick={handleBatchResolveSelected}
-                disabled={isBatchResolving}
-                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs font-mono flex items-center gap-2 cursor-pointer shadow-md shadow-emerald-950/50 transition-all disabled:opacity-50"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>{isBatchResolving ? 'Resolving Batch...' : `Batch Resolve Selected (${selectedConflictIds.length})`}</span>
-              </button>
-
-              <button
-                onClick={() => setSelectedConflictIds([])}
-                className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono cursor-pointer transition-colors"
-              >
-                Clear Selection
-              </button>
-            </div>
+            <button
+              onClick={() => setBatchActionNotification(null)}
+              className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
+
+        {renderBatchActionBar()}
 
         {openConflictsViewMode === 'CLUSTERS' ? (
           <div className="mt-2">
@@ -2409,6 +2677,194 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
           </div>
         )}
       </div>
+      )}
+
+      {/* PENDING REVIEW CONFLICTS TAB VIEW */}
+      {activeTab === 'PENDING_REVIEW' && (
+        <div id="pending-review-conflicts-section" data-testid="pending-review-conflicts-section" className="bg-[#0e172e] p-5 rounded-xl border border-amber-950/80 shadow-md space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="p-1 rounded bg-amber-950 border border-amber-700 text-amber-400">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono">
+                  Pending Review Conflicts ({filteredPendingReviewConflicts.length} of {pendingReviewConflicts.length} Under Review)
+                </h3>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 font-bold">
+                  CONTROLLER REVIEW QUEUE
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Conflicts moved to 'Pending Review' awaiting Section Controller review or joint department sign-off. Use checkboxes to select multiple conflicts and resolve or revert them in a single action.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                id="btn-pending-select-all"
+                data-testid="btn-pending-select-all"
+                onClick={handleSelectAllVisible}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-xs font-mono font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                <span>
+                  {selectedConflictIds.length === filteredPendingReviewConflicts.length && filteredPendingReviewConflicts.length > 0
+                    ? 'Deselect All'
+                    : `Select All (${filteredPendingReviewConflicts.length})`}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* BATCH ACTION NOTIFICATION & ACTION BAR */}
+          {batchActionNotification && (
+            <div
+              id="batch-action-notification-toast"
+              className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs font-mono animate-in fade-in ${
+                batchActionNotification.type === 'success'
+                  ? 'bg-emerald-950/90 text-emerald-200 border-emerald-600 shadow-lg'
+                  : 'bg-rose-950/90 text-rose-200 border-rose-600 shadow-lg'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                {batchActionNotification.type === 'success' ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+                )}
+                <span className="font-bold">{batchActionNotification.message}</span>
+              </div>
+              <button
+                onClick={() => setBatchActionNotification(null)}
+                className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {renderBatchActionBar()}
+
+          {filteredPendingReviewConflicts.length > 0 ? (
+            <div className="overflow-x-auto rounded-lg border border-slate-800">
+              <table className="w-full text-left text-xs font-mono text-[11px]">
+                <thead className="bg-[#0a1020] text-slate-400 border-b border-slate-800 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-3 px-3 w-10 text-center">
+                      <button
+                        type="button"
+                        onClick={handleSelectAllVisible}
+                        className="p-1 rounded text-slate-400 hover:text-amber-300 transition-colors"
+                        title="Select all visible"
+                      >
+                        {selectedConflictIds.length === filteredPendingReviewConflicts.length && filteredPendingReviewConflicts.length > 0 ? (
+                          <CheckSquare className="w-4 h-4 text-amber-400" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-500" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="py-2.5 px-3">Severity</th>
+                    <th className="py-2.5 px-3">Conflict ID</th>
+                    <th className="py-2.5 px-3">Corridor</th>
+                    <th className="py-2.5 px-3">Block ID</th>
+                    <th className="py-2.5 px-3">Conflicting Train</th>
+                    <th className="py-2.5 px-3">Review Notes / Reason</th>
+                    <th className="py-2.5 px-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {filteredPendingReviewConflicts.map((c) => {
+                    const isSelected = selectedConflictIds.includes(c.conflictId);
+                    return (
+                      <tr
+                        key={c.conflictId}
+                        className={`transition-colors border-l-4 border-l-amber-500 ${
+                          isSelected ? 'bg-amber-950/40' : 'hover:bg-slate-800/30 text-slate-300'
+                        }`}
+                      >
+                        <td className="py-3 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSelectConflict(c.conflictId)}
+                            className="p-1 rounded text-slate-400 hover:text-amber-300 transition-colors"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-amber-400" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-600" />
+                            )}
+                          </button>
+                        </td>
+                        <td className="py-2.5 px-3">{renderSeverityBadge(c.severity, c.conflictType)}</td>
+                        <td className="py-2.5 px-3 text-slate-400 font-bold">{c.conflictId}</td>
+                        <td className="py-2.5 px-3 font-semibold text-sky-300">{c.corridorId}</td>
+                        <td className="py-2.5 px-3 font-semibold text-slate-200">
+                          {c.blockId}
+                          <span className="text-[10px] text-slate-400 block font-normal">{c.taskType}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-300">
+                          <span className="font-bold text-purple-300">{c.trainNumber}</span>
+                          <span className="text-[10px] text-slate-400 block font-normal">{c.trainName}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-300">
+                          <div className="text-amber-300 font-medium">
+                            {c.resolutionNotes || 'Pending Controller Clearance'}
+                          </div>
+                          <div className="text-[10px] text-slate-400">{c.description}</div>
+                        </td>
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              id={`btn-resolve-pending-${c.conflictId}`}
+                              data-testid={`btn-resolve-pending-${c.conflictId}`}
+                              onClick={() => {
+                                setSelectedConflictIds([c.conflictId]);
+                                handleBatchMoveToStatus('RESOLVED');
+                              }}
+                              className="px-2.5 py-1 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span>Resolve</span>
+                            </button>
+                            <button
+                              type="button"
+                              id={`btn-reopen-pending-${c.conflictId}`}
+                              data-testid={`btn-reopen-pending-${c.conflictId}`}
+                              onClick={() => {
+                                setSelectedConflictIds([c.conflictId]);
+                                handleBatchMoveToStatus('OPEN');
+                              }}
+                              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <RotateCcw className="w-3 h-3 text-slate-400" />
+                              <span>Revert to Open</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-8 text-center bg-slate-900/60 rounded-lg border border-slate-800 space-y-2">
+              <Clock className="w-8 h-8 text-amber-400 mx-auto" />
+              <h4 className="text-sm font-bold text-slate-200 font-mono uppercase">
+                No Conflicts in Pending Review
+              </h4>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                {pendingReviewConflicts.length === 0
+                  ? "Select multiple conflicts using checkboxes on the 'Open Conflicts' tab and use the Batch Action Menu to move them to 'Pending Review'."
+                  : 'No pending review conflicts match the active filter criteria.'}
+              </p>
+            </div>
+          )}
+        </div>
       )}
 
       {/* BATCH RESOLVE CLUSTERS TAB VIEW */}

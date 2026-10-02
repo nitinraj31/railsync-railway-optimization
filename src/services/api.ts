@@ -1563,6 +1563,73 @@ class RailSyncStore {
     return { success: true, resolvedCount };
   }
 
+  public batchUpdateConflictStatus(
+    conflictIds: string[],
+    targetStatus: 'PENDING_REVIEW' | 'RESOLVED' | 'OPEN',
+    options?: { reason?: string; resolutionNotes?: string }
+  ): { success: boolean; updatedCount: number; updatedConflicts: Conflict[] } {
+    const updatedConflicts: Conflict[] = [];
+
+    conflictIds.forEach((id) => {
+      const c = this.conflicts.find((conf) => conf.conflictId === id);
+      if (!c) return;
+
+      if (targetStatus === 'RESOLVED') {
+        const candidates = ALTERNATIVE_SLOTS_DB.candidates[c.blockId] || [
+          {
+            slotId: `SLOT-BATCH-${c.conflictId}`,
+            startTime: '13:30',
+            endTime: '15:00',
+            corridorId: c.corridorId,
+            date: '2026-09-06',
+            durationMinutes: 90,
+            trainConflictsCount: 0,
+            assetConflictsCount: 0,
+            constraintStatus: 'SATISFIED' as const,
+            optimizationScore: 94.0,
+            scoreBreakdown: 'Batch resolution: Validated against dynamic headway & Section 175 regulations.',
+            recommendationLevel: 'BEST_MATCH' as const,
+          },
+        ];
+        this.resolveConflictWithSlot(c.conflictId, candidates[0]);
+        updatedConflicts.push(c);
+      } else if (targetStatus === 'PENDING_REVIEW') {
+        c.status = 'PENDING_REVIEW';
+        c.resolutionNotes =
+          options?.resolutionNotes ||
+          options?.reason ||
+          'Under Operational Review: Block window requires Section Controller clearance before formal timetable publishing.';
+        updatedConflicts.push(c);
+      } else if (targetStatus === 'OPEN') {
+        c.status = 'OPEN';
+        c.alternativeAppliedSlot = undefined;
+        c.resolvedAt = undefined;
+        c.resolutionNotes = undefined;
+        const block = this.optimizedBlocks.find((b) => b.blockId === c.blockId);
+        if (block) {
+          block.hasConflict = true;
+          block.validationStatus = 'REQUIRES_REVIEW';
+        }
+        updatedConflicts.push(c);
+      }
+    });
+
+    this.persist(STORAGE_KEYS.CONFLICTS, this.conflicts);
+
+    if (updatedConflicts.length > 0) {
+      this.addAuditLogEntry(
+        this.currentUser?.name || 'Chief Controller',
+        'CONTROL_ROOM',
+        `Batch Conflict Status Update: Moved to ${targetStatus}`,
+        `${updatedConflicts.length} Conflict(s) Updated`,
+        'SUCCESS',
+        `Updated conflicts (${updatedConflicts.map((c) => c.conflictId).join(', ')}) to ${targetStatus}. ${options?.reason || ''}`
+      );
+    }
+
+    return { success: true, updatedCount: updatedConflicts.length, updatedConflicts };
+  }
+
   public generateCautionOrder(conflictId: string): CautionOrderMemo {
     const conflict = this.conflicts.find((c) => c.conflictId === conflictId);
     const corridor = this.corridors.find((c) => c.id === conflict?.corridorId) || this.corridors[0];
@@ -1880,6 +1947,13 @@ function handleMockRequest<T>(endpoint: string, options: RequestInit = {}): Prom
       if (cleanEndpoint === '/api/conflicts/reopen') {
         const body = JSON.parse(options.body as string);
         const res = mockStore.reopenClosedConflict(body.conflictId);
+        resolve(res as unknown as T);
+        return;
+      }
+
+      if (cleanEndpoint === '/api/conflicts/batch-status-update') {
+        const body = JSON.parse(options.body as string);
+        const res = mockStore.batchUpdateConflictStatus(body.conflictIds, body.targetStatus, body.options);
         resolve(res as unknown as T);
         return;
       }
@@ -2237,6 +2311,17 @@ export async function simulateWhatIfDelay(conflictId: string, slot?: Alternative
 
 export async function batchResolveSelectedConflicts(conflictIds: string[]): Promise<{ success: boolean; resolvedCount: number }> {
   return mockStore.batchResolveSelected(conflictIds);
+}
+
+export async function batchUpdateConflictStatus(
+  conflictIds: string[],
+  targetStatus: 'PENDING_REVIEW' | 'RESOLVED' | 'OPEN',
+  options?: { reason?: string; resolutionNotes?: string }
+): Promise<{ success: boolean; updatedCount: number; updatedConflicts: Conflict[] }> {
+  return apiRequest<{ success: boolean; updatedCount: number; updatedConflicts: Conflict[] }>('/api/conflicts/batch-status-update', {
+    method: 'POST',
+    body: JSON.stringify({ conflictIds, targetStatus, options }),
+  });
 }
 
 export async function generateCautionOrderMemo(conflictId: string): Promise<CautionOrderMemo> {

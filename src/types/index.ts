@@ -250,7 +250,7 @@ export interface Conflict {
   conflictType: 'TRAIN_OVERLAP' | 'RESOURCE_CONTENTION' | 'CURFEW_RESTRICTION' | 'SPEED_CONSTRAINT' | 'DEPENDENCY_CONFLICT';
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   description: string;
-  status: 'OPEN' | 'RESOLVED' | 'CLOSED';
+  status: 'OPEN' | 'PENDING_REVIEW' | 'RESOLVED' | 'CLOSED';
   maintenanceInterval: string; // e.g. "14:00–15:30"
   trainInterval: string;       // e.g. "14:45–15:05"
   alternativeAppliedSlot?: string;
