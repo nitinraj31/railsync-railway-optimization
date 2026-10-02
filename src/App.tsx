@@ -63,6 +63,7 @@ import { TrainOperationsScreen } from './components/screens/TrainOperationsScree
 import { FinalValidationScreen } from './components/screens/FinalValidationScreen';
 import { SystemAuditScreen } from './components/screens/SystemAuditScreen';
 import { ShadowBlockScreen } from './components/screens/ShadowBlockScreen';
+import { CrewFatigueToastNotification } from './components/notifications/CrewFatigueToastNotification';
 
 export default function App() {
   // Authentication State (default logged in as Railway Planner for instant SIH review)
@@ -509,6 +510,7 @@ export default function App() {
               onNavigate={handleNavigate}
               targetConflictBlockId={targetConflictBlockId}
               publicationState={publicationState as any}
+              corridors={corridors}
               blocks={blocks}
               blockRequests={requests}
             />
@@ -628,6 +630,9 @@ export default function App() {
         }}
         onOpenHotkeysModal={() => setHotkeysModalOpen(true)}
       />
+
+      {/* Real-time Crew Fatigue Circadian Depletion Alert Toast (>85%) */}
+      <CrewFatigueToastNotification onNavigate={handleNavigate} />
     </div>
   );
 }

@@ -35,6 +35,7 @@ import {
   HISTORICAL_SAFETY_INCIDENTS,
   CIRCADIAN_24H_CYCLE,
 } from '../../services/crewFatigueService';
+import { crewFatigueNotificationService } from '../../services/crewFatigueNotificationService';
 import { mockStore } from '../../services/api';
 
 interface CrewFatigueTopologyMapProps {
@@ -465,6 +466,21 @@ export const CrewFatigueTopologyMap: React.FC<CrewFatigueTopologyMapProps> = ({
               <span>Reset Roster Baseline</span>
             </button>
           )}
+
+          {/* Test Real-time Threshold Spike Alert (>85%) */}
+          <button
+            id="test-crew-fatigue-alert-spike-btn"
+            onClick={() => {
+              crewFatigueNotificationService.triggerTestSpike('STAFF-101', 89);
+              setToastMessage('⚠ Real-time Alert Triggered: PWI Gang 3 crossed 85% circadian depletion (89%)!');
+              setTimeout(() => setToastMessage(null), 4000);
+            }}
+            className="px-2.5 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-600 text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Simulate a crew crossing the 85% circadian threshold to verify real-time toast notification"
+          >
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+            <span>Test Alert (&gt;85%)</span>
+          </button>
 
           {/* Navigate to Full Roster */}
           <button

@@ -52,6 +52,13 @@ import {
   RailwayStationNode,
 } from '../../services/defectGeospatialService';
 import { railwayAudio } from '../../services/railwayAudio';
+import {
+  useInfrastructureHealth,
+  InfrastructureHealthSvgLayer,
+  InfrastructureHealthHud,
+  HealthOverlayDisplayMode,
+  TrackSegmentHealthData,
+} from '../predictive/InfrastructureHealthOverlay';
 
 export interface FocusedTarget {
   type: 'BLOCK' | 'ASSET' | 'DEFECT';
@@ -67,6 +74,7 @@ export interface CommandCenterMapPreviewProps {
   focusedTarget?: FocusedTarget | null;
   onSelectTarget?: (target: { type: string; id: string; data: any }) => void;
   initialSidebarOpen?: boolean;
+  initialHealthOverlayOpen?: boolean;
 }
 
 export const CommandCenterMapPreview: React.FC<CommandCenterMapPreviewProps> = ({
@@ -78,6 +86,7 @@ export const CommandCenterMapPreview: React.FC<CommandCenterMapPreviewProps> = (
   focusedTarget = null,
   onSelectTarget,
   initialSidebarOpen = true,
+  initialHealthOverlayOpen = true,
 }) => {
   // SVG Canvas configuration
   const CANVAS_WIDTH = 960;
@@ -97,6 +106,31 @@ export const CommandCenterMapPreview: React.FC<CommandCenterMapPreviewProps> = (
   const [onlyConflicts, setOnlyConflicts] = useState<boolean>(false);
   const [onlyCriticalDefects, setOnlyCriticalDefects] = useState<boolean>(false);
   const [selectedDepartment, setSelectedDepartment] = useState<'ALL' | DepartmentType>('ALL');
+
+  // Real-Time d3.js Infrastructure Health Overlay State
+  const [showHealthOverlay, setShowHealthOverlay] = useState<boolean>(initialHealthOverlayOpen);
+  const [healthDisplayMode, setHealthDisplayMode] = useState<HealthOverlayDisplayMode>('COMBINED');
+  const [healthHoveredSegment, setHealthHoveredSegment] = useState<TrackSegmentHealthData | null>(null);
+  const [healthSelectedSegment, setHealthSelectedSegment] = useState<TrackSegmentHealthData | null>(null);
+  const [healthOnlyCritical, setHealthOnlyCritical] = useState<boolean>(false);
+
+  // d3.js Infrastructure Health computations & scales hook
+  const {
+    trackSegments: healthSegments,
+    networkSummary: healthSummary,
+    riskColorScale: healthRiskScale,
+    loadColorScale: healthLoadScale,
+    strokeWidthScale: healthStrokeScale,
+  } = useInfrastructureHealth({
+    corridors,
+    blocks,
+    defects,
+    canvasWidth: CANVAS_WIDTH,
+    canvasHeight: CANVAS_HEIGHT,
+    zoom,
+    pan,
+    selectedCorridorId,
+  });
 
   // Asset Layer Selection State
   const [activeAssetTypes, setActiveAssetTypes] = useState<Record<SpecificAssetType, boolean>>({
@@ -820,6 +854,32 @@ export const CommandCenterMapPreview: React.FC<CommandCenterMapPreviewProps> = (
             }`}
           >
             Stations
+          </button>
+
+          {/* REAL-TIME D3.JS INFRASTRUCTURE HEALTH OVERLAY TOGGLE */}
+          <button
+            type="button"
+            id="btn-infrastructure-health-toggle"
+            onClick={() => {
+              railwayAudio.playBeep(showHealthOverlay ? 600 : 880, 0.04);
+              setShowHealthOverlay(!showHealthOverlay);
+            }}
+            className={`px-2.5 py-1 rounded-md border text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              showHealthOverlay
+                ? 'bg-gradient-to-r from-rose-950/90 via-slate-900 to-sky-950/90 text-rose-200 border-rose-500 shadow-md ring-1 ring-rose-500/40'
+                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border-slate-800'
+            }`}
+            title="Toggle real-time d3.js Infrastructure Health Overlay (Predicted Failure Risks & Aggregate Maintenance Load)"
+          >
+            <Activity className={`w-3.5 h-3.5 ${showHealthOverlay ? 'text-rose-400 animate-pulse' : 'text-slate-400'}`} />
+            <span>Infrastructure Health</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                showHealthOverlay ? 'bg-rose-500/30 text-rose-300' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {healthSummary.criticalCount > 0 ? `${healthSummary.criticalCount} Critical` : 'd3 Live'}
+            </span>
           </button>
 
           {/* =========================================================================
@@ -1609,6 +1669,31 @@ export const CommandCenterMapPreview: React.FC<CommandCenterMapPreviewProps> = (
           })}
 
           {/* =========================================================================
+              LAYER 1.5: D3.JS INFRASTRUCTURE HEALTH OVERLAY (FAILURE RISK & LOAD HEATMAP)
+              ========================================================================= */}
+          {showHealthOverlay && (
+            <InfrastructureHealthSvgLayer
+              trackSegments={healthSegments}
+              riskColorScale={healthRiskScale}
+              loadColorScale={healthLoadScale}
+              strokeWidthScale={healthStrokeScale}
+              zoom={zoom}
+              displayMode={healthDisplayMode}
+              onlyCriticalHotspots={healthOnlyCritical}
+              hoveredSegment={healthHoveredSegment}
+              selectedSegment={healthSelectedSegment}
+              onHoverSegment={setHealthHoveredSegment}
+              onSelectSegment={(seg) => {
+                setHealthSelectedSegment(seg);
+                setSelectedBlock(null);
+                setSelectedDefect(null);
+                setSelectedStation(null);
+                setSelectedTracksideAsset(null);
+              }}
+            />
+          )}
+
+          {/* =========================================================================
               LAYER 2: ACTIVE BLOCK POSSESSION ZONES (COLORED TRACK RIBBONS)
               ========================================================================= */}
           {showBlocks &&
@@ -2178,6 +2263,23 @@ export const CommandCenterMapPreview: React.FC<CommandCenterMapPreviewProps> = (
             );
           })()}
         </svg>
+
+        {/* =========================================================================
+            REAL-TIME D3.JS INFRASTRUCTURE HEALTH OVERLAY (HUD & INSPECTOR DRAWER)
+            ========================================================================= */}
+        {showHealthOverlay && (
+          <InfrastructureHealthHud
+            networkSummary={healthSummary}
+            displayMode={healthDisplayMode}
+            setDisplayMode={setHealthDisplayMode}
+            onlyCriticalHotspots={healthOnlyCritical}
+            setOnlyCriticalHotspots={setHealthOnlyCritical}
+            selectedSegment={healthSelectedSegment}
+            setSelectedSegment={setHealthSelectedSegment}
+            onNavigate={onNavigate}
+            onClose={() => setShowHealthOverlay(false)}
+          />
+        )}
 
         {/* =========================================================================
             HOVER TOOLTIP OVERLAY

@@ -434,6 +434,22 @@ class CrewFatigueService {
   private incidents: HistoricalSafetyIncident[] = [...HISTORICAL_SAFETY_INCIDENTS];
   private isOptimizedApplied: boolean = false;
   private lastAnalysisResult: FatigueAnalysisResult | null = null;
+  private listeners: Set<(profiles: CrewFatigueProfile[]) => void> = new Set();
+
+  public subscribe(listener: (profiles: CrewFatigueProfile[]) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private notifyListeners(): void {
+    this.listeners.forEach((fn) => {
+      try {
+        fn(this.profiles);
+      } catch (e) {
+        console.error('CrewFatigueService listener error:', e);
+      }
+    });
+  }
 
   // Compute live analysis metrics across roster
   public computeAnalysis(): FatigueAnalysisResult {
@@ -551,6 +567,7 @@ class CrewFatigueService {
 
     this.isOptimizedApplied = true;
     const updated = this.computeAnalysis();
+    this.notifyListeners();
     return {
       success: true,
       message: 'AI rest rotations successfully deployed: 5 high-risk gangs relieved with central standby reserve.',
@@ -562,7 +579,9 @@ class CrewFatigueService {
   public resetToBaseline(): FatigueAnalysisResult {
     this.profiles = JSON.parse(JSON.stringify(INITIAL_CREW_FATIGUE_PROFILES));
     this.isOptimizedApplied = false;
-    return this.computeAnalysis();
+    const res = this.computeAnalysis();
+    this.notifyListeners();
+    return res;
   }
 
   // Apply rotation for single crew member
@@ -590,7 +609,29 @@ class CrewFatigueService {
       }
       return p;
     });
-    return this.computeAnalysis();
+    const res = this.computeAnalysis();
+    this.notifyListeners();
+    return res;
+  }
+
+  // Set or simulate fatigue spike for testing threshold alerts
+  public simulateFatigueSpike(staffId = 'STAFF-101', fatigueScore = 89): FatigueAnalysisResult {
+    this.profiles = this.profiles.map((p) => {
+      if (p.staffId === staffId) {
+        return {
+          ...p,
+          circadianFatigueIndex: fatigueScore,
+          riskTier: (fatigueScore >= 80 ? 'CRITICAL' : 'HIGH') as FatigueRiskTier,
+          currentRestDeficit: true,
+          consecutiveNightShifts: Math.max(4, p.consecutiveNightShifts),
+          sleepDebtHours: Math.max(9.0, p.sleepDebtHours),
+        };
+      }
+      return p;
+    });
+    const res = this.computeAnalysis();
+    this.notifyListeners();
+    return res;
   }
 
   // Call Gemini AI or fallback to evaluate live context

@@ -21,6 +21,7 @@ import {
 import { ValidationResult, PublicationWorkflowState, User, Corridor, OptimizedBlock } from '../../types';
 import { publishSchedule, resolveAllRemainingConflicts, revokePublication } from '../../services/api';
 import { PublishedScheduleModal } from '../modals/PublishedScheduleModal';
+import { DailyBlockSchedulePdfModal } from '../modals/DailyBlockSchedulePdfModal';
 import { printOfficialBulletin, exportBulletinAsHTML, exportBulletinAsCSV } from '../../services/exportBulletinService';
 
 interface FinalValidationScreenProps {
@@ -47,6 +48,7 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [showDossierModal, setShowDossierModal] = useState(false);
+  const [showSignOffPdfModal, setShowSignOffPdfModal] = useState(false);
   const [publishedData, setPublishedData] = useState<{
     success: boolean;
     scheduleId: string;
@@ -137,15 +139,27 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
             </p>
           </div>
 
-          {!isSafe && (
+          <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={handleAutoResolveAndPass}
-              className="px-3.5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md"
+              id="open-division-signoff-pdf-modal-btn"
+              onClick={() => setShowSignOffPdfModal(true)}
+              className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg shadow-amber-950/40 transition-all cursor-pointer"
+              title="Generate formatted, printable PDF of daily maintenance block schedule for division head sign-off"
             >
-              <Sparkles className="w-4 h-4" />
-              <span>Auto-Resolve 5 Conflicts & Unlock Gate</span>
+              <Printer className="w-4 h-4 text-slate-950" />
+              <span>DIVISION SIGN-OFF REPORT (PDF)</span>
             </button>
-          )}
+
+            {!isSafe && (
+              <button
+                onClick={handleAutoResolveAndPass}
+                className="px-3.5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Auto-Resolve 5 Conflicts & Unlock Gate</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -221,6 +235,16 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
             </div>
 
             <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <button
+                id="published-division-signoff-pdf-btn"
+                onClick={() => setShowSignOffPdfModal(true)}
+                className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+                title="Generate formatted printable PDF for Division Head Sign-Off"
+              >
+                <Printer className="w-3.5 h-3.5 text-slate-950" />
+                <span>Sign-Off PDF Report</span>
+              </button>
+
               <button
                 onClick={() => setShowDossierModal(true)}
                 className="px-3.5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md transition-colors"
@@ -358,6 +382,17 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
 
           {/* Action Trigger */}
           <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            {/* Direct Division Sign-off Report Generator Button */}
+            <button
+              id="action-box-division-signoff-pdf-btn"
+              onClick={() => setShowSignOffPdfModal(true)}
+              className="px-4 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 border border-amber-600/70 font-bold text-xs flex items-center gap-2 shadow-md transition-all cursor-pointer"
+              title="Generate printable formatted PDF of daily maintenance block schedule for division head sign-off"
+            >
+              <Printer className="w-4 h-4 text-amber-400" />
+              <span>Generate Sign-Off Report (PDF)</span>
+            </button>
+
             {isPublished ? (
               <>
                 <button
@@ -514,6 +549,17 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
         blocks={blocks}
         onRevokePublication={handleRevokePublication}
         onNavigateToAudit={onNavigateToAudit}
+      />
+
+      {/* AUTOMATED REPORT GENERATOR: DAILY MAINTENANCE BLOCK SCHEDULE PDF FOR DIVISION HEAD SIGN-OFF */}
+      <DailyBlockSchedulePdfModal
+        isOpen={showSignOffPdfModal}
+        onClose={() => setShowSignOffPdfModal(false)}
+        validation={validation}
+        publicationState={publicationState}
+        corridors={corridors}
+        blocks={blocks}
+        currentUser={currentUser}
       />
     </div>
   );

@@ -29,6 +29,7 @@ import {
   exportBulletinAsText,
   exportBulletinAsJSON,
 } from '../../services/exportBulletinService';
+import { DailyBlockSchedulePdfModal } from './DailyBlockSchedulePdfModal';
 
 interface PublishedScheduleModalProps {
   isOpen: boolean;
@@ -53,6 +54,7 @@ export const PublishedScheduleModal: React.FC<PublishedScheduleModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
+  const [showSignOffPdfModal, setShowSignOffPdfModal] = useState(false);
   const [revokeReason, setRevokeReason] = useState(
     'Emergency corridor train priority adjustment requested by Central Traffic Control.'
   );
@@ -539,6 +541,17 @@ Engineers must enforce the locked timetable slots without deviation.
               )}
             </button>
 
+            {/* Division Head Sign-off PDF Generator Button */}
+            <button
+              id="dossier-division-signoff-pdf-btn"
+              onClick={() => setShowSignOffPdfModal(true)}
+              className="px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-950/40 font-sans transition-all cursor-pointer"
+              title="Generate printable PDF of daily maintenance block schedule for division head sign-off"
+            >
+              <Printer className="w-3.5 h-3.5 text-slate-950" />
+              <span>Division Sign-Off PDF</span>
+            </button>
+
             {/* Print Official Bulletin Button */}
             <button
               id="print-official-bulletin-btn"
@@ -570,6 +583,20 @@ Engineers must enforce the locked timetable slots without deviation.
                     <span>Export Formats</span>
                     <span className="text-slate-500">{totalBlocks} Blocks</span>
                   </div>
+
+                  <button
+                    onClick={() => {
+                      setShowExportMenu(false);
+                      setShowSignOffPdfModal(true);
+                    }}
+                    className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-amber-950/60 hover:text-amber-200 text-amber-200 flex items-center gap-2 transition-colors cursor-pointer border border-amber-600/40 bg-amber-950/20"
+                  >
+                    <Printer className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <div className="font-bold text-amber-300">Division Sign-Off PDF (A4)</div>
+                      <div className="text-[10px] text-amber-200/80">3-Page formatted report with DRM sign-off seals</div>
+                    </div>
+                  </button>
 
                   <button
                     onClick={handleExportHTML}
@@ -620,6 +647,15 @@ Engineers must enforce the locked timetable slots without deviation.
           </div>
         </div>
       </div>
+
+      {/* AUTOMATED REPORT GENERATOR: DAILY MAINTENANCE BLOCK SCHEDULE PDF FOR DIVISION HEAD SIGN-OFF */}
+      <DailyBlockSchedulePdfModal
+        isOpen={showSignOffPdfModal}
+        onClose={() => setShowSignOffPdfModal(false)}
+        publicationState={publicationState}
+        corridors={corridors}
+        blocks={blocks}
+      />
     </div>
   );
 };
