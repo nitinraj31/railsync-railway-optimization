@@ -11,8 +11,14 @@ import {
   Layers,
   ChevronRight,
   X,
+  Flame,
+  Activity,
+  ShieldAlert,
 } from 'lucide-react';
 import { Corridor, OptimizedBlock, Train, Conflict } from '../../types';
+import { CorridorDefectPredictiveModule } from '../predictive/CorridorDefectPredictiveModule';
+import { CorridorTrackSegmentHeatmap } from '../corridor/CorridorTrackSegmentHeatmap';
+import { railwayAudio } from '../../services/railwayAudio';
 
 interface CorridorOperationsScreenProps {
   corridors: Corridor[];
@@ -31,7 +37,8 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
   onNavigateToBlockTimeline,
   onNavigateToConflict,
 }) => {
-  const [selectedCorridorId, setSelectedCorridorId] = useState<string>('C003');
+  const [selectedCorridorId, setSelectedCorridorId] = useState<string>('C001');
+  const [activeViewMode, setActiveViewMode] = useState<'INTEGRATED' | 'HEATMAP_ONLY' | 'PREDICTIVE_ONLY' | 'TOPOLOGY_ONLY'>('INTEGRATED');
 
   const selectedCorridor = corridors.find((c) => c.id === selectedCorridorId) || corridors[0];
   const corridorBlocks = blocks.filter((b) => b.corridorId === selectedCorridor.id);
@@ -44,9 +51,9 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="bg-[#0e172e] p-5 rounded-xl border border-sky-950/80 shadow-md">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 flex-wrap">
               <GitFork className="w-5 h-5 text-sky-400" />
               <h1 className="text-lg font-bold text-slate-100 font-mono tracking-wide uppercase">
                 Corridor Operations & Network Topology
@@ -54,30 +61,135 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-950/80 text-sky-300 border border-blue-800">
                 SCREEN 7 / TOPOLOGY & UTILIZATION
               </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-700 font-bold flex items-center gap-1 animate-pulse">
+                <Flame className="w-3 h-3 text-rose-400" />
+                4 URGENT TRACK SEGMENTS
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold flex items-center gap-1">
+                <Layers className="w-3 h-3 text-emerald-400" />
+                RED-TO-GREEN HEATMAP ACTIVE
+              </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              Topological schematic across 4 primary railway sections with live capacity and train path density.
+              Topological schematic across 4 primary railway sections with red-to-green maintenance severity & repair duration heatmap analytics.
             </p>
           </div>
 
-          <button
-            onClick={onNavigateToBlockTimeline}
-            className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center gap-1.5"
-          >
-            <span>Inspect Gantt Timeline</span>
-            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* View Mode Toggle */}
+            <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1 font-mono text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  railwayAudio.playBeep(600, 0.05);
+                  setActiveViewMode('INTEGRATED');
+                }}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                  activeViewMode === 'INTEGRATED'
+                    ? 'bg-sky-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+              >
+                Integrated View
+              </button>
+
+              <button
+                type="button"
+                id="btn-view-heatmap-module"
+                onClick={() => {
+                  railwayAudio.playBeep(650, 0.05);
+                  setActiveViewMode('HEATMAP_ONLY');
+                }}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
+                  activeViewMode === 'HEATMAP_ONLY'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-emerald-300/80 hover:text-emerald-200 hover:bg-slate-800'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Track Heatmap</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-view-predictive-module"
+                onClick={() => {
+                  railwayAudio.playBeep(650, 0.05);
+                  setActiveViewMode('PREDICTIVE_ONLY');
+                }}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
+                  activeViewMode === 'PREDICTIVE_ONLY'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'text-amber-300/80 hover:text-amber-200 hover:bg-slate-800'
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>Predictive Module</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  railwayAudio.playBeep(600, 0.05);
+                  setActiveViewMode('TOPOLOGY_ONLY');
+                }}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                  activeViewMode === 'TOPOLOGY_ONLY'
+                    ? 'bg-slate-700 text-white'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+              >
+                Topology Only
+              </button>
+            </div>
+
+            <button
+              onClick={onNavigateToBlockTimeline}
+              className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>Inspect Gantt Timeline</span>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* TOPOLOGICAL SCHEMATIC CARD */}
-      <div className="bg-[#0a1020] p-6 rounded-xl border border-sky-950/80 shadow-inner">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono mb-4">
-          Railway Section Network Schematic
-        </h3>
+      {/* =========================================================================
+          TRACK SEGMENTS HEATMAP VISUALIZATION (RED-TO-GREEN COLOR CODING)
+          ========================================================================= */}
+      {(activeViewMode === 'INTEGRATED' || activeViewMode === 'HEATMAP_ONLY') && (
+        <CorridorTrackSegmentHeatmap
+          selectedCorridorId={selectedCorridorId}
+          onSelectCorridor={(corr) => setSelectedCorridorId(corr)}
+        />
+      )}
 
-        {/* Schematic Layout Diagram */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+      {/* =========================================================================
+          AUTOMATED PREDICTIVE DEFECT ANALYSIS MODULE
+          ========================================================================= */}
+      {(activeViewMode === 'INTEGRATED' || activeViewMode === 'PREDICTIVE_ONLY') && (
+        <CorridorDefectPredictiveModule
+          selectedCorridorId={selectedCorridorId}
+          onSelectCorridor={(corr) => setSelectedCorridorId(corr)}
+          onNavigateToTimeline={onNavigateToBlockTimeline}
+        />
+      )}
+
+      {/* TOPOLOGICAL SCHEMATIC CARD */}
+      {(activeViewMode === 'INTEGRATED' || activeViewMode === 'TOPOLOGY_ONLY') && (
+        <>
+          <div className="bg-[#0a1020] p-6 rounded-xl border border-sky-950/80 shadow-inner">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono">
+                Railway Section Network Schematic
+              </h3>
+              <span className="text-[10px] font-mono text-slate-400">
+                Click any section to filter both topology details & predictive maintenance forecasts
+              </span>
+            </div>
+
+            {/* Schematic Layout Diagram */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
           {/* C001 Route */}
           <div
             onClick={() => setSelectedCorridorId('C001')}
@@ -338,6 +450,8 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 };
