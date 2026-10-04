@@ -14,6 +14,11 @@ import {
   Flame,
   Activity,
   ShieldAlert,
+  Clock,
+  Sliders,
+  Eye,
+  EyeOff,
+  Filter,
 } from 'lucide-react';
 import { Corridor, OptimizedBlock, Train, Conflict } from '../../types';
 import { CorridorDefectPredictiveModule } from '../predictive/CorridorDefectPredictiveModule';
@@ -39,6 +44,8 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
 }) => {
   const [selectedCorridorId, setSelectedCorridorId] = useState<string>('C001');
   const [activeViewMode, setActiveViewMode] = useState<'INTEGRATED' | 'HEATMAP_ONLY' | 'PREDICTIVE_ONLY' | 'TOPOLOGY_ONLY'>('INTEGRATED');
+  const [heatmapMode, setHeatmapMode] = useState<'SEVERITY' | 'DURATION'>('SEVERITY');
+  const [hideZeroMaintenance, setHideZeroMaintenance] = useState<boolean>(false);
 
   const selectedCorridor = corridors.find((c) => c.id === selectedCorridorId) || corridors[0];
   const corridorBlocks = blocks.filter((b) => b.corridorId === selectedCorridor.id);
@@ -76,6 +83,90 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Heatmap Mode Toggle: Severity-based vs Repair Duration-based */}
+            <div
+              id="corridor-heatmap-mode-toggle"
+              data-testid="corridor-heatmap-mode-toggle"
+              className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1 font-mono text-xs shadow-inner"
+            >
+              <span className="text-[10px] text-slate-400 uppercase px-2 font-bold flex items-center gap-1">
+                <Sliders className="w-3 h-3 text-sky-400" />
+                <span>Heatmap Mode:</span>
+              </span>
+
+              <button
+                type="button"
+                id="btn-toggle-heatmap-severity"
+                data-testid="btn-toggle-heatmap-severity"
+                onClick={() => {
+                  railwayAudio.playBeep(700, 0.06);
+                  setHeatmapMode('SEVERITY');
+                }}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
+                  heatmapMode === 'SEVERITY'
+                    ? 'bg-gradient-to-r from-rose-600 to-rose-700 text-white shadow-md shadow-rose-950/60 ring-1 ring-rose-400'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+                title="Switch heatmap visualization to 'Severity-based' mode (Green to Red representing failure risk and degradation)"
+              >
+                <Flame className="w-3.5 h-3.5" />
+                <span>Severity-based</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-toggle-heatmap-duration"
+                data-testid="btn-toggle-heatmap-duration"
+                onClick={() => {
+                  railwayAudio.playBeep(750, 0.06);
+                  setHeatmapMode('DURATION');
+                }}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
+                  heatmapMode === 'DURATION'
+                    ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-md shadow-amber-950/60 ring-1 ring-amber-400'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+                title="Switch heatmap visualization to 'Repair Duration-based' mode (Green to Red representing estimated block duration)"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Repair Duration-based</span>
+              </button>
+            </div>
+
+            {/* Active Visualization Mode Pill */}
+            <div className="hidden xl:flex items-center gap-2 text-[10px] font-mono">
+              {heatmapMode === 'SEVERITY' ? (
+                <span
+                  id="header-scale-pill-severity"
+                  data-testid="header-scale-pill-severity"
+                  className="px-2.5 py-1 rounded-lg bg-rose-950/80 text-rose-300 border border-rose-800 font-bold flex items-center gap-1.5 shadow-sm"
+                >
+                  <Flame className="w-3 h-3 text-rose-400 shrink-0" />
+                  <span>Green (0%) ➔ Red (100% Criticality)</span>
+                </span>
+              ) : (
+                <span
+                  id="header-scale-pill-duration"
+                  data-testid="header-scale-pill-duration"
+                  className="px-2.5 py-1 rounded-lg bg-amber-950/80 text-amber-300 border border-amber-800 font-bold flex items-center gap-1.5 shadow-sm"
+                >
+                  <Clock className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>Green (&lt;30m) ➔ Red (180m+ Mega-Block)</span>
+                </span>
+              )}
+
+              {hideZeroMaintenance && (
+                <span
+                  id="header-declutter-pill"
+                  data-testid="header-declutter-pill"
+                  className="px-2.5 py-1 rounded-lg bg-emerald-950/90 text-emerald-300 border border-emerald-600 font-bold flex items-center gap-1.5 shadow-sm animate-in fade-in"
+                >
+                  <EyeOff className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <span>DECLUTTER ACTIVE (Zero-Maint Hidden)</span>
+                </span>
+              )}
+            </div>
+
             {/* View Mode Toggle */}
             <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1 font-mono text-xs">
               <button
@@ -161,6 +252,10 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
         <CorridorTrackSegmentHeatmap
           selectedCorridorId={selectedCorridorId}
           onSelectCorridor={(corr) => setSelectedCorridorId(corr)}
+          metricMode={heatmapMode}
+          onMetricModeChange={(m) => setHeatmapMode(m === 'DURATION' ? 'DURATION' : 'SEVERITY')}
+          hideZeroMaintenance={hideZeroMaintenance}
+          onToggleHideZeroMaintenance={(hide) => setHideZeroMaintenance(hide)}
         />
       )}
 
@@ -321,14 +416,33 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
             </p>
           </div>
 
-          <div className="flex items-center gap-2 font-mono text-xs">
-            <span className="text-slate-400">Utilization:</span>
-            <span className="font-bold text-slate-200">{selectedCorridor.utilization}%</span>
-            <div className="w-24 h-2 bg-slate-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-sky-500 rounded-full"
-                style={{ width: `${selectedCorridor.utilization}%` }}
-              ></div>
+          <div className="flex items-center gap-3 font-mono text-xs flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400">Utilization:</span>
+              <span className="font-bold text-slate-200">{selectedCorridor.utilization}%</span>
+              <div className="w-20 h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-sky-500 rounded-full"
+                  style={{ width: `${selectedCorridor.utilization}%` }}
+                ></div>
+              </div>
+            </div>
+
+            <div className="h-4 w-px bg-slate-800 hidden sm:block" />
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-400">Heatmap Mode:</span>
+              {heatmapMode === 'SEVERITY' ? (
+                <span className="text-[10px] px-2 py-0.5 rounded bg-rose-950/80 text-rose-300 border border-rose-800 font-bold flex items-center gap-1">
+                  <Flame className="w-3 h-3 text-rose-400" />
+                  <span>Severity-based</span>
+                </span>
+              ) : (
+                <span className="text-[10px] px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800 font-bold flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-amber-400" />
+                  <span>Repair Duration-based</span>
+                </span>
+              )}
             </div>
           </div>
         </div>

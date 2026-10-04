@@ -40,6 +40,21 @@ export interface HeatmapTrackSegment {
   threatenedTrainsCount: number;
   projectedPunctualityLossMinutes: number;
   statutoryStandard: string;
+
+  // Maintenance Status & Declutter Flag
+  zeroMaintenanceRequired?: boolean;
+  maintenanceStatusLabel?: 'Zero Maintenance Required' | 'Routine Patrol Only' | 'Preventive Action Required' | 'Urgent Mega-Block Required';
+}
+
+/**
+ * Evaluates whether a track segment qualifies for 'Zero Maintenance Required' status
+ * (sound alignment, healthy tier, minimal defect degradation, or explicit declutter flag)
+ */
+export function isZeroMaintenanceRequired(segment: HeatmapTrackSegment): boolean {
+  if (segment.zeroMaintenanceRequired !== undefined) {
+    return segment.zeroMaintenanceRequired;
+  }
+  return segment.severityTier === 'HEALTHY' || segment.maintenanceSeverityScore <= 28;
 }
 
 export interface CorridorHeatmapSummary {
@@ -96,6 +111,8 @@ export const CORRIDOR_HEATMAP_SEGMENTS: HeatmapTrackSegment[] = [
     threatenedTrainsCount: 2,
     projectedPunctualityLossMinutes: 8,
     statutoryStandard: 'IRPW Manual Para 210 (Monthly Foot Patrol Audit)',
+    zeroMaintenanceRequired: true,
+    maintenanceStatusLabel: 'Zero Maintenance Required',
   },
   {
     segmentId: 'C001-S2-SBB-GZB',
@@ -131,6 +148,8 @@ export const CORRIDOR_HEATMAP_SEGMENTS: HeatmapTrackSegment[] = [
     threatenedTrainsCount: 16,
     projectedPunctualityLossMinutes: 145,
     statutoryStandard: 'IRPW Manual Para 224 (Immediate Removal within 72h)',
+    zeroMaintenanceRequired: false,
+    maintenanceStatusLabel: 'Urgent Mega-Block Required',
   },
   {
     segmentId: 'C001-S3-GZB-ALJN',
@@ -310,6 +329,8 @@ export const CORRIDOR_HEATMAP_SEGMENTS: HeatmapTrackSegment[] = [
     threatenedTrainsCount: 0,
     projectedPunctualityLossMinutes: 0,
     statutoryStandard: 'IRPW Manual Para 215',
+    zeroMaintenanceRequired: true,
+    maintenanceStatusLabel: 'Zero Maintenance Required',
   },
   {
     segmentId: 'C002-S4-SNP-PNP',
@@ -489,6 +510,8 @@ export const CORRIDOR_HEATMAP_SEGMENTS: HeatmapTrackSegment[] = [
     threatenedTrainsCount: 2,
     projectedPunctualityLossMinutes: 5,
     statutoryStandard: 'IRPW Manual Para 211',
+    zeroMaintenanceRequired: true,
+    maintenanceStatusLabel: 'Zero Maintenance Required',
   },
 
   // =========================================================================
@@ -633,6 +656,8 @@ export const CORRIDOR_HEATMAP_SEGMENTS: HeatmapTrackSegment[] = [
     threatenedTrainsCount: 1,
     projectedPunctualityLossMinutes: 0,
     statutoryStandard: 'IRPW Manual Para 212',
+    zeroMaintenanceRequired: true,
+    maintenanceStatusLabel: 'Zero Maintenance Required',
   },
 ];
 
@@ -828,6 +853,103 @@ class CorridorTrackSegmentHeatmapService {
       totalRepairDurationHours: +(totalMins / 60).toFixed(1),
       threatenedTrainsTotal: threatened,
     };
+  }
+
+  /**
+   * Real-time telemetry generator simulating dynamic sensor ingestion
+   * (USFD acoustic probe, OMS track car accelerometer, FLIR drone infrared)
+   */
+  public simulateRealTimeTelemetry(
+    currentSegments: HeatmapTrackSegment[]
+  ): { segments: HeatmapTrackSegment[]; deltaSummary: string } {
+    // Pick 1-2 segments to show live telemetry drift
+    const targetIdx = Math.floor(Math.random() * currentSegments.length);
+    const target = currentSegments[targetIdx];
+
+    // Jitter between -1 and +2 points
+    const jitter = Math.random() > 0.4 ? 1 : -1;
+    const newSeverity = Math.min(99, Math.max(12, target.maintenanceSeverityScore + jitter));
+    
+    // Duration slight adjustment
+    let newDuration = target.expectedRepairDurationMinutes;
+    if (newSeverity >= 85) {
+      newDuration = Math.min(180, Math.max(150, newDuration + (jitter > 0 ? 5 : 0)));
+    } else if (newSeverity <= 25) {
+      newDuration = Math.max(20, Math.min(35, newDuration + (jitter < 0 ? -5 : 0)));
+    }
+
+    let newTier = target.severityTier;
+    if (newSeverity >= 80) newTier = 'CRITICAL';
+    else if (newSeverity >= 65) newTier = 'HIGH';
+    else if (newSeverity >= 45) newTier = 'MODERATE';
+    else if (newSeverity >= 25) newTier = 'LOW';
+    else newTier = 'HEALTHY';
+
+    const updated = currentSegments.map((s, idx) => {
+      if (idx !== targetIdx) return s;
+      return {
+        ...s,
+        maintenanceSeverityScore: newSeverity,
+        severityTier: newTier,
+        expectedRepairDurationMinutes: newDuration,
+        expectedRepairDurationHours: +(newDuration / 60).toFixed(2),
+        trackDegradationIndex: Math.min(98, Math.max(15, s.trackDegradationIndex + jitter)),
+        zeroMaintenanceRequired: newSeverity <= 28 || newTier === 'HEALTHY',
+        maintenanceStatusLabel: (newSeverity <= 28 || newTier === 'HEALTHY'
+          ? 'Zero Maintenance Required'
+          : newSeverity >= 80
+          ? 'Urgent Mega-Block Required'
+          : 'Preventive Action Required') as HeatmapTrackSegment['maintenanceStatusLabel'],
+      };
+    });
+
+    const deltaMsg = `Telemetry Packet Ingested for ${target.fromStation} ↔ ${target.toStation}: TDI updated to ${target.trackDegradationIndex + jitter}, severity score ${newSeverity}% (${newTier}).`;
+
+    return { segments: updated, deltaSummary: deltaMsg };
+  }
+
+  /**
+   * Spikes a non-critical segment to 'CRITICAL' status for instant testing
+   * of the Predictive Criticality Alert modal
+   */
+  public triggerCriticalSpike(
+    currentSegments: HeatmapTrackSegment[],
+    targetSegmentId?: string
+  ): { segments: HeatmapTrackSegment[]; spikedSegment: HeatmapTrackSegment; deltaSummary: string } {
+    // Find a non-critical candidate if no target specified
+    let target = currentSegments.find((s) => s.segmentId === targetSegmentId);
+    if (!target) {
+      target = currentSegments.find(
+        (s) => s.severityTier !== 'CRITICAL' && s.maintenanceSeverityScore < 80
+      ) || currentSegments[0];
+    }
+
+    const updated = currentSegments.map((s) => {
+      if (s.segmentId !== target!.segmentId) return s;
+      return {
+        ...s,
+        maintenanceSeverityScore: 93,
+        severityTier: 'CRITICAL' as MaintenanceSeverityTier,
+        expectedRepairDurationMinutes: 160,
+        expectedRepairDurationHours: 2.67,
+        durationCategory: 'EXTENDED_MEGA' as const,
+        trackDegradationIndex: 92,
+        gaugeSpreadMm: 5.2,
+        failureRiskProbabilityPct: 94,
+        threatenedTrainsCount: Math.max(14, s.threatenedTrainsCount + 6),
+        projectedPunctualityLossMinutes: Math.max(120, s.projectedPunctualityLossMinutes + 45),
+        primaryDefectCategory: 'Automated Ultrasonic Attenuation & Dynamic Rail Flaw (IMR-SPIKE)',
+        defectSummary: `CRITICALITY SPIKE INGESTED: Rapid acoustic probe velocity drop at weld zone. Excessive dynamic vertical acceleration (3.9m/s²) detected. Immediate emergency possession required.`,
+        statutoryStandard: 'IRPW Manual Para 224 (Immediate Emergency Removal within 24-72h)',
+        zeroMaintenanceRequired: false,
+        maintenanceStatusLabel: 'Urgent Mega-Block Required' as const,
+      };
+    });
+
+    const spiked = updated.find((s) => s.segmentId === target!.segmentId)!;
+    const deltaMsg = `🚨 SENSOR SPIKE TRIGGERED: ${spiked.fromStation} ↔ ${spiked.toStation} heat-map status transitioned to 'CRITICAL' (93% score, 160m mega-block needed).`;
+
+    return { segments: updated, spikedSegment: spiked, deltaSummary: deltaMsg };
   }
 }
 
