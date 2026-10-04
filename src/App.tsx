@@ -498,6 +498,8 @@ export default function App() {
               blocks={blocks}
               trains={trains}
               corridors={corridors}
+              conflicts={conflicts}
+              blockRequests={requests}
               onNavigateToConflict={handleNavigateToConflict}
               onRefreshData={refreshAllData}
             />

@@ -23,10 +23,23 @@ import {
   Undo2,
   Layers,
   Check,
+  Flame,
 } from 'lucide-react';
-import { OptimizedBlock, Train, Corridor } from '../../types';
+import { OptimizedBlock, Train, Corridor, Conflict, BlockRequest } from '../../types';
 import { publishSchedule, mockStore } from '../../services/api';
 import { railwayAudio } from '../../services/railwayAudio';
+import {
+  calculateCorridorTimelineHeatmapMetrics,
+  TimelineHeatmapMode,
+  CorridorHeatmapMetrics,
+  HourlyHeatmapCell,
+} from '../../services/corridorTimelineHeatmapService';
+import {
+  CorridorTimelineHeatmapControlBar,
+  CorridorHourlyHeatmapRibbon,
+  CorridorRiskHeaderBadge,
+  CorridorRiskInspectorModal,
+} from '../corridor/CorridorTimelineHeatmapOverlay';
 
 export interface BlockTimelineScreenProps {
   blocks: OptimizedBlock[];
@@ -34,6 +47,9 @@ export interface BlockTimelineScreenProps {
   corridors: Corridor[];
   onNavigateToConflict: (blockId?: string) => void;
   onRefreshData?: () => void;
+  conflicts?: Conflict[];
+  blockRequests?: BlockRequest[];
+  initialShowHeatmap?: boolean;
 }
 
 interface EmptySlot {
@@ -63,6 +79,9 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
   corridors,
   onNavigateToConflict,
   onRefreshData,
+  conflicts,
+  blockRequests,
+  initialShowHeatmap = true,
 }) => {
   // Local state for blocks to support immediate optimistic drag-and-drop feedback
   const [localBlocks, setLocalBlocks] = useState<OptimizedBlock[]>(blocks);
@@ -73,6 +92,44 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
   const [selectedCorridorId, setSelectedCorridorId] = useState<string>('ALL');
   const [selectedBlock, setSelectedBlock] = useState<OptimizedBlock | null>(null);
   const [selectedTrain, setSelectedTrain] = useState<Train | null>(null);
+
+  // Visual Heatmap Overlay State (Highlights high conflict frequency & pending maintenance requests)
+  const [showHeatmapOverlay, setShowHeatmapOverlay] = useState<boolean>(initialShowHeatmap ?? true);
+  const [heatmapMode, setHeatmapMode] = useState<TimelineHeatmapMode>('COMBINED');
+  const [heatmapIntensity, setHeatmapIntensity] = useState<'SUBTLE' | 'STANDARD' | 'VIVID'>('STANDARD');
+  const [heatmapFilterCriticalOnly, setHeatmapFilterCriticalOnly] = useState<boolean>(false);
+  const [inspectingCorridorMetrics, setInspectingCorridorMetrics] = useState<CorridorHeatmapMetrics | null>(null);
+
+  // Live conflicts and block requests (fallback to mockStore for real-time reactivity)
+  const liveConflicts = useMemo(() => {
+    if (conflicts && conflicts.length > 0) return conflicts;
+    try {
+      return mockStore.getConflicts();
+    } catch {
+      return [];
+    }
+  }, [conflicts]);
+
+  const liveRequests = useMemo(() => {
+    if (blockRequests && blockRequests.length > 0) return blockRequests;
+    try {
+      return mockStore.getBlockRequests();
+    } catch {
+      return [];
+    }
+  }, [blockRequests]);
+
+  // Compute Heatmap Risk Metrics for all corridors
+  const heatmapSummary = useMemo(() => {
+    return calculateCorridorTimelineHeatmapMetrics(
+      corridors,
+      liveConflicts,
+      liveRequests,
+      localBlocks,
+      heatmapMode,
+      heatmapIntensity
+    );
+  }, [corridors, liveConflicts, liveRequests, localBlocks, heatmapMode, heatmapIntensity]);
 
   // Operational Layers State
   const [showOheLayer, setShowOheLayer] = useState<boolean>(true);
@@ -177,9 +234,16 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
     return labels;
   }, []);
 
-  const visibleCorridors = corridors.filter(
-    (c) => selectedCorridorId === 'ALL' || c.id === selectedCorridorId
-  );
+  const visibleCorridors = useMemo(() => {
+    return corridors.filter((c) => {
+      if (selectedCorridorId !== 'ALL' && c.id !== selectedCorridorId) return false;
+      if (showHeatmapOverlay && heatmapFilterCriticalOnly) {
+        const m = heatmapSummary.metricsByCorridor[c.id];
+        return m && (m.riskTier === 'CRITICAL' || m.riskTier === 'HIGH');
+      }
+      return true;
+    });
+  }, [corridors, selectedCorridorId, showHeatmapOverlay, heatmapFilterCriticalOnly, heatmapSummary]);
 
   // Compute unoccupied empty time slots for a given corridor
   const getEmptySlotsForCorridor = (
@@ -678,6 +742,32 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
 
         {/* Operational Safety Toggles */}
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Visual Heatmap Overlay Toggle */}
+          <button
+            type="button"
+            id="toggle-heatmap-overlay-btn"
+            onClick={() => {
+              setShowHeatmapOverlay((prev) => !prev);
+              try {
+                railwayAudio.playBeep(640, 0.05);
+              } catch {}
+            }}
+            className={`px-2.5 py-1 rounded text-[11px] font-mono flex items-center gap-1.5 border transition-all cursor-pointer ${
+              showHeatmapOverlay
+                ? 'bg-rose-950/90 border-rose-500 text-rose-300 font-bold ring-1 ring-rose-400 shadow-sm shadow-rose-950/60'
+                : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+            }`}
+            title="Toggle visual heatmap overlay highlighting high conflict frequency & pending unresolved maintenance requests"
+          >
+            <Flame className={`w-3.5 h-3.5 ${showHeatmapOverlay ? 'text-rose-400 animate-pulse' : 'text-slate-400'}`} />
+            <span>Corridor Risk Heatmap</span>
+            {heatmapSummary.criticalCorridorsCount > 0 && (
+              <span className="px-1 rounded bg-rose-900 text-white text-[9px] font-black">
+                {heatmapSummary.criticalCorridorsCount} HOTSPOT{heatmapSummary.criticalCorridorsCount > 1 ? 'S' : ''}
+              </span>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={() => setShowOheLayer((prev) => !prev)}
@@ -712,6 +802,21 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
         </div>
       </div>
 
+      {/* VISUAL HEATMAP OVERLAY CONTROL BAR & NETWORK KPI HUD */}
+      {showHeatmapOverlay && (
+        <CorridorTimelineHeatmapControlBar
+          summary={heatmapSummary}
+          mode={heatmapMode}
+          onModeChange={setHeatmapMode}
+          intensity={heatmapIntensity}
+          onIntensityChange={setHeatmapIntensity}
+          filterCriticalOnly={heatmapFilterCriticalOnly}
+          onToggleFilterCritical={() => setHeatmapFilterCriticalOnly((prev) => !prev)}
+          onSelectCorridorFocus={(cid) => setSelectedCorridorId(cid)}
+          onOpenInspectorForCorridor={(met) => setInspectingCorridorMetrics(met)}
+        />
+      )}
+
       {/* MAIN GANTT TIMELINE GRID */}
       <div className="bg-[#0e172e] p-5 rounded-xl border border-sky-950/80 shadow-lg space-y-6 overflow-x-auto">
         <div className="min-w-[950px]">
@@ -737,14 +842,17 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
                 draggingBlock?.blockId,
                 draggingBlock?.durationMinutes || 45
               );
+              const corridorMetrics = heatmapSummary.metricsByCorridor[corridor.id];
+
+              const cardClasses =
+                showHeatmapOverlay && corridorMetrics
+                  ? `rounded-lg border p-3.5 space-y-2.5 transition-all ${corridorMetrics.cardBorderGlow} ${corridorMetrics.cardBackgroundTint}`
+                  : 'rounded-lg bg-slate-900/60 border border-slate-800 p-3.5 space-y-2.5 hover:border-slate-700 transition-colors';
 
               return (
-                <div
-                  key={corridor.id}
-                  className="rounded-lg bg-slate-900/60 border border-slate-800 p-3.5 space-y-2.5 hover:border-slate-700 transition-colors"
-                >
+                <div key={corridor.id} className={cardClasses}>
                   {/* Corridor Header */}
-                  <div className="flex items-center justify-between text-xs font-mono pb-2 border-b border-slate-800/60">
+                  <div className="flex items-center justify-between text-xs font-mono pb-2 border-b border-slate-800/60 flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sky-300 bg-sky-950/80 px-2 py-0.5 rounded border border-sky-800">
                         {corridor.id}
@@ -754,7 +862,14 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
                         ({corridor.fromStation || corridor.stationFrom} ↔ {corridor.toStation || corridor.stationTo})
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 text-[11px]">
+
+                    <div className="flex items-center gap-3 text-[11px] flex-wrap">
+                      {showHeatmapOverlay && corridorMetrics && (
+                        <CorridorRiskHeaderBadge
+                          metrics={corridorMetrics}
+                          onInspect={(m) => setInspectingCorridorMetrics(m)}
+                        />
+                      )}
                       <span className="text-slate-400">
                         Available Empty Lulls:{' '}
                         <strong className="text-emerald-400">{corridorEmptySlots.length} slots</strong>
@@ -765,6 +880,16 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
                       </span>
                     </div>
                   </div>
+
+                  {/* VISUAL HEATMAP OVERLAY: 12-HOUR CHRONOLOGICAL CORRIDOR HEATMAP RIBBON */}
+                  {showHeatmapOverlay && corridorMetrics && (
+                    <CorridorHourlyHeatmapRibbon
+                      metrics={corridorMetrics}
+                      mode={heatmapMode}
+                      intensity={heatmapIntensity}
+                      onCellClick={(cell, met) => setInspectingCorridorMetrics(met)}
+                    />
+                  )}
 
                   {/* Operational Layer: 25kV OHE TRACTION INTERLOCKING RIBBON */}
                   {showOheLayer && (
@@ -1353,6 +1478,15 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* CORRIDOR RISK & UNRESOLVED MAINTENANCE HEATMAP INSPECTOR MODAL */}
+      {inspectingCorridorMetrics && (
+        <CorridorRiskInspectorModal
+          metrics={inspectingCorridorMetrics}
+          onClose={() => setInspectingCorridorMetrics(null)}
+          onNavigateToConflict={onNavigateToConflict}
+        />
       )}
     </div>
   );
