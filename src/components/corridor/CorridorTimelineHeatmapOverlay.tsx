@@ -19,8 +19,12 @@ import {
   CheckCircle2,
   Calendar,
   Compass,
+  Filter,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import {
+  CorridorConflictIntensity,
   CorridorHeatmapMetrics,
   HourlyHeatmapCell,
   TimelineHeatmapMode,
@@ -35,10 +39,17 @@ export interface CorridorTimelineHeatmapControlBarProps {
   onModeChange: (mode: TimelineHeatmapMode) => void;
   intensity: 'SUBTLE' | 'STANDARD' | 'VIVID';
   onIntensityChange: (intensity: 'SUBTLE' | 'STANDARD' | 'VIVID') => void;
-  filterCriticalOnly: boolean;
-  onToggleFilterCritical: () => void;
+  filterCriticalOnly?: boolean;
+  onToggleFilterCritical?: () => void;
+  selectedIntensities?: CorridorConflictIntensity[];
+  onToggleIntensity?: (intensity: CorridorConflictIntensity) => void;
+  onSelectAllIntensities?: () => void;
+  onClearAllIntensities?: () => void;
+  visibleCorridorsCount?: number;
   onSelectCorridorFocus?: (corridorId: string) => void;
   onOpenInspectorForCorridor?: (metrics: CorridorHeatmapMetrics) => void;
+  onResolveAllNonCritical?: () => Promise<void> | void;
+  isResolvingNonCritical?: boolean;
 }
 
 /**
@@ -50,10 +61,17 @@ export const CorridorTimelineHeatmapControlBar: React.FC<CorridorTimelineHeatmap
   onModeChange,
   intensity,
   onIntensityChange,
-  filterCriticalOnly,
+  filterCriticalOnly = false,
   onToggleFilterCritical,
+  selectedIntensities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'],
+  onToggleIntensity = (_intensity: CorridorConflictIntensity) => {},
+  onSelectAllIntensities = () => {},
+  onClearAllIntensities = () => {},
+  visibleCorridorsCount,
   onSelectCorridorFocus,
   onOpenInspectorForCorridor,
+  onResolveAllNonCritical,
+  isResolvingNonCritical = false,
 }) => {
   return (
     <div
@@ -263,35 +281,231 @@ export const CorridorTimelineHeatmapControlBar: React.FC<CorridorTimelineHeatmap
         </div>
       </div>
 
-      {/* Bottom row: Dynamic Heatmap Gradient Scale Bar & Tier Explanations */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pt-1 border-t border-slate-800/60 text-[10px] text-slate-400">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold text-slate-300 uppercase">Risk Gradient Scale:</span>
-          {/* Continuous gradient strip */}
-          <div className="h-2 w-32 sm:w-44 rounded-full bg-gradient-to-r from-emerald-600 via-amber-500 to-rose-600 shadow-inner"></div>
-
+      {/* Bottom row: Dynamic Heatmap Gradient Scale Bar, Interactive Conflict Intensity Checkboxes & Resolve All Non-Critical Action */}
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pt-2 border-t border-slate-800/80 text-[10px] text-slate-400">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Continuous gradient strip & Scale title */}
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span className="text-emerald-400">0–24% Nominal</span>
+            <span className="font-bold text-slate-300 uppercase flex items-center gap-1">
+              <Sliders className="w-3 h-3 text-sky-400" />
+              <span>Risk Scale:</span>
             </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
-              <span className="text-yellow-400">25–44% Moderate</span>
+            <div className="flex items-center gap-1.5" title="Continuous Corridor Heatmap Risk Scale (0% Nominal to 100% Critical Hotspot)">
+              <span className="text-[9px] text-slate-500 font-mono">0%</span>
+              <div className="h-2 w-16 sm:w-24 rounded-full bg-gradient-to-r from-emerald-600 via-amber-500 to-rose-600 shadow-inner"></div>
+              <span className="text-[9px] text-slate-500 font-mono">100%</span>
+            </div>
+          </div>
+
+          <span className="text-slate-700 hidden sm:inline">|</span>
+
+          {/* Interactive Checkboxes for Filtering Corridors by Conflict Intensity */}
+          <div className="flex items-center gap-1.5 flex-wrap" id="corridor-intensity-checkbox-group">
+            <span className="font-bold text-slate-300 uppercase text-[10px] flex items-center gap-1 mr-1">
+              <Filter className="w-3 h-3 text-amber-400" />
+              <span>Filter Conflict Intensity:</span>
             </span>
-            <span className="flex items-center gap-1">
+
+            {/* CRITICAL Checkbox */}
+            <label
+              htmlFor="filter-checkbox-critical"
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-mono cursor-pointer transition-all select-none ${
+                selectedIntensities.includes('CRITICAL')
+                  ? 'bg-rose-950/80 border-rose-500 text-rose-200 ring-1 ring-rose-400 shadow-sm shadow-rose-950/50'
+                  : 'bg-slate-900/60 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-400'
+              }`}
+              title="Filter corridors with CRITICAL conflict intensity (critical train/block overlaps or ≥70 risk score)"
+            >
+              <input
+                type="checkbox"
+                id="filter-checkbox-critical"
+                name="intensity-filter-critical"
+                checked={selectedIntensities.includes('CRITICAL')}
+                onChange={() => onToggleIntensity('CRITICAL')}
+                className="w-3.5 h-3.5 rounded accent-rose-500 cursor-pointer"
+              />
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse ring-1 ring-rose-300"></span>
+              <span className="font-bold tracking-tight">CRITICAL</span>
+              <span className="text-[9px] opacity-75 hidden 2xl:inline">(70–100%)</span>
+              <span
+                className={`px-1.5 py-0.2 rounded text-[10px] font-black ${
+                  selectedIntensities.includes('CRITICAL')
+                    ? 'bg-rose-900 text-rose-100 border border-rose-600'
+                    : 'bg-slate-800 text-slate-500 border border-slate-700'
+                }`}
+                title={`${summary.corridorCountByIntensity?.CRITICAL ?? summary.criticalCorridorsCount} corridor(s)`}
+              >
+                {summary.corridorCountByIntensity?.CRITICAL ?? summary.criticalCorridorsCount}
+              </span>
+            </label>
+
+            {/* HIGH Checkbox */}
+            <label
+              htmlFor="filter-checkbox-high"
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-mono cursor-pointer transition-all select-none ${
+                selectedIntensities.includes('HIGH')
+                  ? 'bg-amber-950/80 border-amber-500 text-amber-200 ring-1 ring-amber-400 shadow-sm shadow-amber-950/50'
+                  : 'bg-slate-900/60 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-400'
+              }`}
+              title="Filter corridors with HIGH conflict intensity (high strain or 45–69 risk score)"
+            >
+              <input
+                type="checkbox"
+                id="filter-checkbox-high"
+                name="intensity-filter-high"
+                checked={selectedIntensities.includes('HIGH')}
+                onChange={() => onToggleIntensity('HIGH')}
+                className="w-3.5 h-3.5 rounded accent-amber-500 cursor-pointer"
+              />
               <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-              <span className="text-amber-400">45–69% High Strain</span>
-            </span>
-            <span className="flex items-center gap-1 font-bold">
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
-              <span className="text-rose-400">70–100% Critical Hotspot</span>
-            </span>
+              <span className="font-bold tracking-tight">HIGH</span>
+              <span className="text-[9px] opacity-75 hidden 2xl:inline">(45–69%)</span>
+              <span
+                className={`px-1.5 py-0.2 rounded text-[10px] font-black ${
+                  selectedIntensities.includes('HIGH')
+                    ? 'bg-amber-900 text-amber-100 border border-amber-600'
+                    : 'bg-slate-800 text-slate-500 border border-slate-700'
+                }`}
+                title={`${summary.corridorCountByIntensity?.HIGH ?? summary.highCorridorsCount} corridor(s)`}
+              >
+                {summary.corridorCountByIntensity?.HIGH ?? summary.highCorridorsCount}
+              </span>
+            </label>
+
+            {/* MEDIUM Checkbox */}
+            <label
+              htmlFor="filter-checkbox-medium"
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-mono cursor-pointer transition-all select-none ${
+                selectedIntensities.includes('MEDIUM')
+                  ? 'bg-yellow-950/80 border-yellow-500 text-yellow-200 ring-1 ring-yellow-400 shadow-sm shadow-yellow-950/50'
+                  : 'bg-slate-900/60 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-400'
+              }`}
+              title="Filter corridors with MEDIUM conflict intensity (medium pressure or 20–44 risk score)"
+            >
+              <input
+                type="checkbox"
+                id="filter-checkbox-medium"
+                name="intensity-filter-medium"
+                checked={selectedIntensities.includes('MEDIUM')}
+                onChange={() => onToggleIntensity('MEDIUM')}
+                className="w-3.5 h-3.5 rounded accent-yellow-500 cursor-pointer"
+              />
+              <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+              <span className="font-bold tracking-tight">MEDIUM</span>
+              <span className="text-[9px] opacity-75 hidden 2xl:inline">(20–44%)</span>
+              <span
+                className={`px-1.5 py-0.2 rounded text-[10px] font-black ${
+                  selectedIntensities.includes('MEDIUM')
+                    ? 'bg-yellow-900 text-yellow-100 border border-yellow-600'
+                    : 'bg-slate-800 text-slate-500 border border-slate-700'
+                }`}
+                title={`${summary.corridorCountByIntensity?.MEDIUM ?? summary.mediumCorridorsCount ?? 0} corridor(s)`}
+              >
+                {summary.corridorCountByIntensity?.MEDIUM ?? summary.mediumCorridorsCount ?? 0}
+              </span>
+            </label>
+
+            {/* LOW Checkbox */}
+            <label
+              htmlFor="filter-checkbox-low"
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-mono cursor-pointer transition-all select-none ${
+                selectedIntensities.includes('LOW')
+                  ? 'bg-emerald-950/80 border-emerald-500 text-emerald-200 ring-1 ring-emerald-400 shadow-sm shadow-emerald-950/50'
+                  : 'bg-slate-900/60 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-400'
+              }`}
+              title="Filter corridors with LOW conflict intensity (nominal traffic or 0–19 risk score)"
+            >
+              <input
+                type="checkbox"
+                id="filter-checkbox-low"
+                name="intensity-filter-low"
+                checked={selectedIntensities.includes('LOW')}
+                onChange={() => onToggleIntensity('LOW')}
+                className="w-3.5 h-3.5 rounded accent-emerald-500 cursor-pointer"
+              />
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span className="font-bold tracking-tight">LOW</span>
+              <span className="text-[9px] opacity-75 hidden 2xl:inline">(0–19%)</span>
+              <span
+                className={`px-1.5 py-0.2 rounded text-[10px] font-black ${
+                  selectedIntensities.includes('LOW')
+                    ? 'bg-emerald-900 text-emerald-100 border border-emerald-600'
+                    : 'bg-slate-800 text-slate-500 border border-slate-700'
+                }`}
+                title={`${summary.corridorCountByIntensity?.LOW ?? summary.lowCorridorsCount} corridor(s)`}
+              >
+                {summary.corridorCountByIntensity?.LOW ?? summary.lowCorridorsCount}
+              </span>
+            </label>
+
+            {/* Quick Actions: All / Reset */}
+            <div className="flex items-center gap-1 pl-1">
+              <button
+                type="button"
+                id="filter-intensity-all-btn"
+                onClick={onSelectAllIntensities}
+                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[10px] font-mono cursor-pointer transition-colors"
+                title="Select all conflict intensity tiers"
+              >
+                All
+              </button>
+              <button
+                type="button"
+                id="filter-intensity-clear-btn"
+                onClick={onClearAllIntensities}
+                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 text-[10px] font-mono cursor-pointer transition-colors"
+                title="Deselect all conflict intensity tiers"
+              >
+                Clear
+              </button>
+            </div>
+
+            {/* Active filter status pill */}
+            {selectedIntensities.length < 4 && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-950 text-sky-300 border border-sky-700 font-bold animate-in fade-in flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+                <span>
+                  Filtered: {visibleCorridorsCount ?? '?'} of {summary.totalCorridors} Corridors
+                </span>
+              </span>
+            )}
           </div>
         </div>
 
-        <div className="text-[10px] text-slate-400 italic">
-          💡 Click any corridor risk chip or hourly cell on the timeline to inspect conflict details and pending work orders.
+        {/* Action Button: Resolve All Non-Critical */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="text-[10px] text-slate-400 hidden 2xl:inline italic">
+            💡 Click any corridor risk chip or hourly cell to inspect.
+          </div>
+
+          <button
+            type="button"
+            id="resolve-all-non-critical-btn"
+            onClick={onResolveAllNonCritical}
+            disabled={isResolvingNonCritical || summary.totalNonCriticalOpenConflicts === 0}
+            className={`px-3 py-1.5 rounded-lg font-mono text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-md ${
+              summary.totalNonCriticalOpenConflicts > 0
+                ? 'bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-600 hover:from-emerald-600 hover:to-teal-600 text-white border border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.35)] active:scale-95'
+                : 'bg-slate-900 border border-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+            }`}
+            title={
+              summary.totalNonCriticalOpenConflicts > 0
+                ? `Automatically accept AI-proposed schedule offsets for all ${summary.totalNonCriticalOpenConflicts} open conflict(s) marked as 'MEDIUM' or 'LOW' priority`
+                : "No open Medium or Low priority conflicts to resolve"
+            }
+          >
+            <Sparkles className={`w-3.5 h-3.5 text-emerald-300 ${isResolvingNonCritical ? 'animate-spin' : ''}`} />
+            <span>{isResolvingNonCritical ? 'Applying AI Offsets...' : 'Resolve All Non-Critical'}</span>
+            <span
+              className={`px-1.5 py-0.2 rounded text-[10px] font-black ${
+                summary.totalNonCriticalOpenConflicts > 0
+                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-500'
+                  : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {summary.totalNonCriticalOpenConflicts}
+            </span>
+          </button>
         </div>
       </div>
     </div>
@@ -477,6 +691,22 @@ export const CorridorRiskHeaderBadge: React.FC<CorridorRiskHeaderBadgeProps> = (
         </span>
         <span className="text-[9px] opacity-90 uppercase">({metrics.riskTier})</span>
       </button>
+
+      {/* Conflict Intensity Pill */}
+      <span
+        className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border ${
+          metrics.conflictIntensity === 'CRITICAL'
+            ? 'bg-rose-950/90 text-rose-300 border-rose-600 shadow-xs'
+            : metrics.conflictIntensity === 'HIGH'
+            ? 'bg-amber-950/90 text-amber-300 border-amber-600'
+            : metrics.conflictIntensity === 'MEDIUM'
+            ? 'bg-yellow-950/90 text-yellow-300 border-yellow-700'
+            : 'bg-emerald-950/90 text-emerald-300 border-emerald-700'
+        }`}
+        title={`Current Conflict Intensity: ${metrics.conflictIntensity}`}
+      >
+        {metrics.conflictIntensity}
+      </span>
 
       {/* Conflict frequency counter */}
       {metrics.openConflicts > 0 && (

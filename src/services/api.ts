@@ -131,6 +131,10 @@ class RailSyncStore {
       this.trains = this.loadOrSet(STORAGE_KEYS.TRAINS, generateInitialTrains());
       this.maintenanceTasks = this.loadOrSet(STORAGE_KEYS.MAINTENANCE_TASKS, generateInitialMaintenanceTasks());
       this.auditLogs = this.loadOrSet(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS);
+      if (this.auditLogs.length <= 5 && INITIAL_AUDIT_LOGS.length > 5) {
+        this.auditLogs = INITIAL_AUDIT_LOGS;
+        this.persist(STORAGE_KEYS.AUDIT_LOGS, this.auditLogs);
+      }
       this.machinery = this.loadOrSet(STORAGE_KEYS.MACHINERY, INITIAL_MACHINERY_RESOURCES);
       this.manpowerGangs = this.loadOrSet(STORAGE_KEYS.MANPOWER_GANGS, INITIAL_MANPOWER_GANGS);
 

@@ -31,8 +31,10 @@ import { railwayAudio } from '../../services/railwayAudio';
 import {
   calculateCorridorTimelineHeatmapMetrics,
   TimelineHeatmapMode,
+  CorridorConflictIntensity,
   CorridorHeatmapMetrics,
   HourlyHeatmapCell,
+  resolveAllNonCriticalConflicts,
 } from '../../services/corridorTimelineHeatmapService';
 import {
   CorridorTimelineHeatmapControlBar,
@@ -98,7 +100,38 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
   const [heatmapMode, setHeatmapMode] = useState<TimelineHeatmapMode>('COMBINED');
   const [heatmapIntensity, setHeatmapIntensity] = useState<'SUBTLE' | 'STANDARD' | 'VIVID'>('STANDARD');
   const [heatmapFilterCriticalOnly, setHeatmapFilterCriticalOnly] = useState<boolean>(false);
+  const [selectedConflictIntensities, setSelectedConflictIntensities] = useState<CorridorConflictIntensity[]>([
+    'CRITICAL',
+    'HIGH',
+    'MEDIUM',
+    'LOW',
+  ]);
   const [inspectingCorridorMetrics, setInspectingCorridorMetrics] = useState<CorridorHeatmapMetrics | null>(null);
+
+  const handleToggleIntensity = (intensity: CorridorConflictIntensity) => {
+    setSelectedConflictIntensities((prev) => {
+      const exists = prev.includes(intensity);
+      const next = exists ? prev.filter((i) => i !== intensity) : [...prev, intensity];
+      try {
+        railwayAudio.playBeep(exists ? 520 : 720, 0.04);
+      } catch {}
+      return next;
+    });
+  };
+
+  const handleSelectAllIntensities = () => {
+    setSelectedConflictIntensities(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+    try {
+      railwayAudio.playBeep(700, 0.04);
+    } catch {}
+  };
+
+  const handleClearAllIntensities = () => {
+    setSelectedConflictIntensities([]);
+    try {
+      railwayAudio.playBeep(450, 0.04);
+    } catch {}
+  };
 
   // Live conflicts and block requests (fallback to mockStore for real-time reactivity)
   const liveConflicts = useMemo(() => {
@@ -149,6 +182,14 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
     corridorId: string;
     scheduleId?: string;
     scheduleVersion?: string;
+    timestamp: string;
+  } | null>(null);
+
+  // Non-Critical Conflict Auto-Resolution State
+  const [isResolvingNonCritical, setIsResolvingNonCritical] = useState<boolean>(false);
+  const [nonCriticalResolvedNotification, setNonCriticalResolvedNotification] = useState<{
+    count: number;
+    proposals: any[];
     timestamp: string;
   } | null>(null);
 
@@ -237,13 +278,27 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
   const visibleCorridors = useMemo(() => {
     return corridors.filter((c) => {
       if (selectedCorridorId !== 'ALL' && c.id !== selectedCorridorId) return false;
-      if (showHeatmapOverlay && heatmapFilterCriticalOnly) {
+      if (showHeatmapOverlay) {
         const m = heatmapSummary.metricsByCorridor[c.id];
-        return m && (m.riskTier === 'CRITICAL' || m.riskTier === 'HIGH');
+        if (m) {
+          if (!selectedConflictIntensities.includes(m.conflictIntensity)) {
+            return false;
+          }
+        }
+        if (heatmapFilterCriticalOnly) {
+          return m && (m.riskTier === 'CRITICAL' || m.conflictIntensity === 'CRITICAL');
+        }
       }
       return true;
     });
-  }, [corridors, selectedCorridorId, showHeatmapOverlay, heatmapFilterCriticalOnly, heatmapSummary]);
+  }, [
+    corridors,
+    selectedCorridorId,
+    showHeatmapOverlay,
+    selectedConflictIntensities,
+    heatmapFilterCriticalOnly,
+    heatmapSummary,
+  ]);
 
   // Compute unoccupied empty time slots for a given corridor
   const getEmptySlotsForCorridor = (
@@ -575,6 +630,32 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
     }
   };
 
+  // Automatically accept AI-proposed schedule offsets for all MEDIUM and LOW priority conflicts
+  const handleResolveAllNonCritical = async () => {
+    setIsResolvingNonCritical(true);
+    try {
+      const res = await resolveAllNonCriticalConflicts(liveConflicts, localBlocks);
+      if (res.success && res.resolvedCount > 0) {
+        setLocalBlocks(res.updatedBlocks);
+        setNonCriticalResolvedNotification({
+          count: res.resolvedCount,
+          proposals: res.proposals,
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        try {
+          railwayAudio.playBeep(920, 0.08);
+        } catch {}
+        if (onRefreshData) {
+          onRefreshData();
+        }
+      }
+    } catch (err) {
+      console.error('Failed to resolve all non-critical conflicts:', err);
+    } finally {
+      setIsResolvingNonCritical(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
       {/* HEADER BANNER */}
@@ -684,6 +765,40 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
               <X className="w-4 h-4" />
             </button>
           </div>
+        </div>
+      )}
+
+      {/* NON-CRITICAL CONFLICT AUTO-RESOLUTION CONFIRMATION BANNER */}
+      {nonCriticalResolvedNotification && (
+        <div className="bg-gradient-to-r from-emerald-950/95 via-slate-950 to-teal-950/90 border border-emerald-400 rounded-xl p-3.5 text-xs font-mono text-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-lg shadow-emerald-950/50 animate-in fade-in">
+          <div className="flex items-start md:items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-emerald-900/60 border border-emerald-400 text-emerald-300 shrink-0">
+              <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-emerald-300">
+                  AI SCHEDULE OFFSETS ACCEPTED ({nonCriticalResolvedNotification.count} NON-CRITICAL CONFLICTS RESOLVED)
+                </span>
+                <span className="px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px]">
+                  MEDIUM &amp; LOW PRIORITY
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  {nonCriticalResolvedNotification.timestamp}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 mt-0.5">
+                Automatically shifted maintenance blocks into validated timetable lull slots. All passenger train paths protected with zero disruption.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNonCriticalResolvedNotification(null)}
+            className="p-1 rounded text-slate-400 hover:text-white shrink-0 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -799,6 +914,36 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
             <AlertTriangle className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
             <span className="text-[11px] font-bold">⚠ TRAIN-BLOCK OVERLAP</span>
           </div>
+
+          {/* Resolve All Non-Critical Button in Legend Toolbar */}
+          <button
+            type="button"
+            id="legend-resolve-non-critical-btn"
+            onClick={handleResolveAllNonCritical}
+            disabled={isResolvingNonCritical || heatmapSummary.totalNonCriticalOpenConflicts === 0}
+            className={`px-2.5 py-1 rounded text-[11px] font-mono flex items-center gap-1.5 border transition-all cursor-pointer ${
+              heatmapSummary.totalNonCriticalOpenConflicts > 0
+                ? 'bg-gradient-to-r from-emerald-800 to-teal-800 hover:from-emerald-700 hover:to-teal-700 text-white font-bold border-emerald-400 shadow-sm shadow-emerald-950/60 ring-1 ring-emerald-400 active:scale-95'
+                : 'bg-slate-900 border-slate-700 text-slate-500 cursor-not-allowed opacity-60'
+            }`}
+            title={
+              heatmapSummary.totalNonCriticalOpenConflicts > 0
+                ? `Automatically accept AI-proposed schedule offsets for all ${heatmapSummary.totalNonCriticalOpenConflicts} open conflict(s) marked as 'MEDIUM' or 'LOW' priority`
+                : "No open Medium or Low priority conflicts to resolve"
+            }
+          >
+            <Sparkles className={`w-3.5 h-3.5 text-emerald-300 ${isResolvingNonCritical ? 'animate-spin' : ''}`} />
+            <span>{isResolvingNonCritical ? 'Applying Offsets...' : 'Resolve All Non-Critical'}</span>
+            <span
+              className={`px-1.5 py-0.2 rounded text-[9px] font-black ${
+                heatmapSummary.totalNonCriticalOpenConflicts > 0
+                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-500'
+                  : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {heatmapSummary.totalNonCriticalOpenConflicts}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -811,9 +956,26 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
           intensity={heatmapIntensity}
           onIntensityChange={setHeatmapIntensity}
           filterCriticalOnly={heatmapFilterCriticalOnly}
-          onToggleFilterCritical={() => setHeatmapFilterCriticalOnly((prev) => !prev)}
+          onToggleFilterCritical={() => {
+            setHeatmapFilterCriticalOnly((prev) => {
+              const next = !prev;
+              if (next) {
+                setSelectedConflictIntensities(['CRITICAL']);
+              } else {
+                setSelectedConflictIntensities(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+              }
+              return next;
+            });
+          }}
+          selectedIntensities={selectedConflictIntensities}
+          onToggleIntensity={handleToggleIntensity}
+          onSelectAllIntensities={handleSelectAllIntensities}
+          onClearAllIntensities={handleClearAllIntensities}
+          visibleCorridorsCount={visibleCorridors.length}
           onSelectCorridorFocus={(cid) => setSelectedCorridorId(cid)}
           onOpenInspectorForCorridor={(met) => setInspectingCorridorMetrics(met)}
+          onResolveAllNonCritical={handleResolveAllNonCritical}
+          isResolvingNonCritical={isResolvingNonCritical}
         />
       )}
 
@@ -834,7 +996,27 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
 
           {/* Corridor Rows */}
           <div className="space-y-6 mt-4">
-            {visibleCorridors.map((corridor) => {
+            {visibleCorridors.length === 0 ? (
+              <div className="py-12 px-6 text-center rounded-xl bg-slate-900/60 border border-slate-800 space-y-3 font-mono">
+                <Filter className="w-8 h-8 text-amber-400 mx-auto opacity-80" />
+                <h4 className="text-sm font-bold text-slate-200">
+                  No Corridors Match Selected Conflict Intensity Filter
+                </h4>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  All corridor rows are currently filtered out. Use the interactive checkboxes in the heatmap legend above to select CRITICAL, HIGH, MEDIUM, or LOW conflict intensity corridors.
+                </p>
+                <button
+                  type="button"
+                  id="reset-intensity-filter-empty-btn"
+                  onClick={handleSelectAllIntensities}
+                  className="px-3.5 py-1.5 rounded-lg bg-sky-900 hover:bg-sky-800 text-sky-200 text-xs font-bold border border-sky-600 transition-colors cursor-pointer shadow-md inline-flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-sky-300" />
+                  <span>Show All Conflict Intensities</span>
+                </button>
+              </div>
+            ) : (
+              visibleCorridors.map((corridor) => {
               const corridorBlocks = localBlocks.filter((b) => b.corridorId === corridor.id);
               const corridorTrains = trains.filter((t) => t.corridorId === corridor.id);
               const corridorEmptySlots = getEmptySlotsForCorridor(
@@ -1147,7 +1329,7 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
                   </div>
                 </div>
               );
-            })}
+            }))}
           </div>
         </div>
       </div>

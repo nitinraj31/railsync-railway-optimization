@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Users,
   Wrench,
@@ -37,6 +38,8 @@ import {
   Sun,
   Sunrise,
   CalendarClock,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -164,6 +167,7 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
   const [selectedShift, setSelectedShift] = useState<ShiftType>(initialShift || 'DAY_SHIFT');
   const [chartView, setChartView] = useState<ChartViewMode>(getInitialChartView());
   const [activeTab, setActiveTab] = useState<ActiveTab>(getInitialTab());
+  const [rosterViewMode, setRosterViewMode] = useState<'CARDS' | 'TABLE'>('CARDS');
   const [filterCorridor, setFilterCorridor] = useState<string>(initialCorridorId || 'ALL');
   const [searchQuery, setSearchQuery] = useState<string>(initialResourceType || '');
   const [selectedCorridorId, setSelectedCorridorId] = useState<string | null>(initialCorridorId || null);
@@ -1014,126 +1018,215 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
       </div>
 
       {/* TOP STRATEGIC KPI CARDS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
-        {/* KPI 1: Active Manpower */}
-        <div className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between">
-          <div>
-            <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Active Trackmen</div>
-            <div className="text-2xl font-bold text-slate-100 font-mono mt-1">{totalDeployedManpower}</div>
-            <div className="text-[10px] text-emerald-400 font-mono mt-0.5 flex items-center gap-1">
-              <span>{gangs.length} Gangs On-Track</span>
-              <span className="text-slate-500">•</span>
-              <span className="text-slate-400">+{totalStandbyManpower} Reserve</span>
-            </div>
-          </div>
-          <div className="p-3 rounded-lg bg-sky-950/60 text-sky-400 border border-sky-800/60">
-            <HardHat className="w-5 h-5" />
-          </div>
-        </div>
-
-        {/* KPI 2: Heavy Track Machinery */}
-        <div className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between">
-          <div>
-            <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Track Machines</div>
-            <div className="text-2xl font-bold text-slate-100 font-mono mt-1">
-              {totalDeployedMachinery} <span className="text-sm font-normal text-slate-400">/ {machinery.length}</span>
-            </div>
-            <div className="text-[10px] text-purple-400 font-mono mt-0.5 flex items-center gap-1">
-              <span>{totalStandbyMachinery} Central Standby</span>
-              <span className="text-slate-500">•</span>
-              <span className="text-slate-400">100% Ready</span>
-            </div>
-          </div>
-          <div className="p-3 rounded-lg bg-purple-950/60 text-purple-400 border border-purple-800/60">
-            <Truck className="w-5 h-5" />
-          </div>
-        </div>
-
-        {/* KPI 3: Average Network Load */}
-        <div className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between">
-          <div>
-            <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Capacity Load Factor</div>
-            <div className="text-2xl font-bold text-slate-100 font-mono mt-1">{networkAvgUtilization}%</div>
-            <div className="text-[10px] text-slate-400 font-mono mt-0.5 flex items-center gap-1">
-              <span className={networkAvgUtilization > 90 ? 'text-amber-400' : 'text-emerald-400'}>
-                {networkAvgUtilization > 90 ? 'High Headway Load' : 'Optimum Operational Band'}
-              </span>
-            </div>
-          </div>
-          <div className="p-3 rounded-lg bg-blue-950/60 text-blue-400 border border-blue-800/60">
-            <Gauge className="w-5 h-5" />
-          </div>
-        </div>
-
-        {/* KPI 4: Bottleneck Warnings */}
-        <div className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between">
-          <div>
-            <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Capacity Alerts</div>
-            <div className="text-2xl font-bold text-amber-400 font-mono mt-1">{totalBottlenecks}</div>
-            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-              {totalBottlenecks > 0 ? 'Machine slot / Gang crowding' : 'Zero violations'}
-            </div>
-          </div>
-          <div className="p-3 rounded-lg bg-amber-950/60 text-amber-400 border border-amber-800/60">
-            <AlertTriangle className="w-5 h-5" />
-          </div>
-        </div>
-
-        {/* KPI 5: Statutory Safety Compliance */}
-        <div className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between">
-          <div>
-            <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Safety Briefings</div>
-            <div className="text-2xl font-bold text-emerald-400 font-mono mt-1">100%</div>
-            <div className="text-[10px] text-slate-400 font-mono mt-0.5">Lookout Flagmen Stationed</div>
-          </div>
-          <div className="p-3 rounded-lg bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
-        </div>
-
-        {/* KPI 6: Crew Fatigue Risk Index (Interactive) */}
-        <div
-          id="kpi-crew-fatigue-card"
-          onClick={() => {
-            setActiveTab('FATIGUE');
-            const el = document.getElementById('fleet-roster-section');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`kpi-cards-${selectedShift}`}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          variants={{
+            hidden: { opacity: 0 },
+            visible: {
+              opacity: 1,
+              transition: {
+                staggerChildren: 0.05,
+                delayChildren: 0.02,
+              },
+            },
+            exit: { opacity: 0, transition: { duration: 0.1 } },
           }}
-          className={`p-4 rounded-xl border shadow-md flex items-center justify-between transition-all cursor-pointer ${
-            activeTab === 'FATIGUE'
-              ? 'border-rose-500 bg-[#170a1c] ring-1 ring-rose-500/50'
-              : 'border-sky-950/80 bg-[#0e172e] hover:border-rose-900/80'
-          }`}
-          title="Click to inspect crew fatigue profiles & suggested rest rotations"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5"
         >
-          <div>
-            <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider flex items-center gap-1">
-              <span>Crew Fatigue</span>
-              <span className="text-[9px] px-1 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800">
-                AI
-              </span>
+          {/* KPI 1: Active Manpower */}
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 14, scale: 0.96 },
+              visible: {
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                transition: { type: 'spring', stiffness: 360, damping: 25 },
+              },
+            }}
+            whileHover={{ y: -2, transition: { duration: 0.15 } }}
+            className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between"
+          >
+            <div>
+              <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Active Trackmen</div>
+              <div className="text-2xl font-bold text-slate-100 font-mono mt-1">{totalDeployedManpower}</div>
+              <div className="text-[10px] text-emerald-400 font-mono mt-0.5 flex items-center gap-1">
+                <span>{gangs.length} Gangs On-Track</span>
+                <span className="text-slate-500">•</span>
+                <span className="text-slate-400">+{totalStandbyManpower} Reserve</span>
+              </div>
             </div>
-            <div className="text-2xl font-bold font-mono mt-1 flex items-baseline gap-1">
-              <span className={fatigueSummary.averageFatigueScore > 40 ? 'text-rose-400' : 'text-emerald-400'}>
-                {fatigueSummary.averageFatigueScore}%
-              </span>
-              <span className="text-[10px] text-slate-400 font-normal">
-                {fatigueSummary.optimizedRotationsApplied ? 'Rest Active' : 'Night Peak'}
-              </span>
+            <div className="p-3 rounded-lg bg-sky-950/60 text-sky-400 border border-sky-800/60">
+              <HardHat className="w-5 h-5" />
             </div>
-            <div className="text-[10px] font-mono mt-0.5 flex items-center gap-1 text-slate-400">
-              <span className={fatigueSummary.criticalFatigueCount > 0 ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
-                {fatigueSummary.criticalFatigueCount} Critical
-              </span>
-              <span className="text-slate-500">•</span>
-              <span className="text-sky-400">AI Optimize →</span>
+          </motion.div>
+
+          {/* KPI 2: Heavy Track Machinery */}
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 14, scale: 0.96 },
+              visible: {
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                transition: { type: 'spring', stiffness: 360, damping: 25 },
+              },
+            }}
+            whileHover={{ y: -2, transition: { duration: 0.15 } }}
+            className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between"
+          >
+            <div>
+              <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Track Machines</div>
+              <div className="text-2xl font-bold text-slate-100 font-mono mt-1">
+                {totalDeployedMachinery} <span className="text-sm font-normal text-slate-400">/ {machinery.length}</span>
+              </div>
+              <div className="text-[10px] text-purple-400 font-mono mt-0.5 flex items-center gap-1">
+                <span>{totalStandbyMachinery} Central Standby</span>
+                <span className="text-slate-500">•</span>
+                <span className="text-slate-400">100% Ready</span>
+              </div>
             </div>
-          </div>
-          <div className="p-3 rounded-lg bg-rose-950/60 text-rose-400 border border-rose-800/60">
-            <HeartPulse className="w-5 h-5 animate-pulse" />
-          </div>
-        </div>
-      </div>
+            <div className="p-3 rounded-lg bg-purple-950/60 text-purple-400 border border-purple-800/60">
+              <Truck className="w-5 h-5" />
+            </div>
+          </motion.div>
+
+          {/* KPI 3: Average Network Load */}
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 14, scale: 0.96 },
+              visible: {
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                transition: { type: 'spring', stiffness: 360, damping: 25 },
+              },
+            }}
+            whileHover={{ y: -2, transition: { duration: 0.15 } }}
+            className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between"
+          >
+            <div>
+              <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Capacity Load Factor</div>
+              <div className="text-2xl font-bold text-slate-100 font-mono mt-1">{networkAvgUtilization}%</div>
+              <div className="text-[10px] text-slate-400 font-mono mt-0.5 flex items-center gap-1">
+                <span className={networkAvgUtilization > 90 ? 'text-amber-400' : 'text-emerald-400'}>
+                  {networkAvgUtilization > 90 ? 'High Headway Load' : 'Optimum Operational Band'}
+                </span>
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-blue-950/60 text-blue-400 border border-blue-800/60">
+              <Gauge className="w-5 h-5" />
+            </div>
+          </motion.div>
+
+          {/* KPI 4: Bottleneck Warnings */}
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 14, scale: 0.96 },
+              visible: {
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                transition: { type: 'spring', stiffness: 360, damping: 25 },
+              },
+            }}
+            whileHover={{ y: -2, transition: { duration: 0.15 } }}
+            className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between"
+          >
+            <div>
+              <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Capacity Alerts</div>
+              <div className="text-2xl font-bold text-amber-400 font-mono mt-1">{totalBottlenecks}</div>
+              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                {totalBottlenecks > 0 ? 'Machine slot / Gang crowding' : 'Zero violations'}
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-amber-950/60 text-amber-400 border border-amber-800/60">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+          </motion.div>
+
+          {/* KPI 5: Statutory Safety Compliance */}
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 14, scale: 0.96 },
+              visible: {
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                transition: { type: 'spring', stiffness: 360, damping: 25 },
+              },
+            }}
+            whileHover={{ y: -2, transition: { duration: 0.15 } }}
+            className="bg-[#0e172e] p-4 rounded-xl border border-sky-950/80 shadow-md flex items-center justify-between"
+          >
+            <div>
+              <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Safety Briefings</div>
+              <div className="text-2xl font-bold text-emerald-400 font-mono mt-1">100%</div>
+              <div className="text-[10px] text-slate-400 font-mono mt-0.5">Lookout Flagmen Stationed</div>
+            </div>
+            <div className="p-3 rounded-lg bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+          </motion.div>
+
+          {/* KPI 6: Crew Fatigue Risk Index (Interactive) */}
+          <motion.div
+            id="kpi-crew-fatigue-card"
+            variants={{
+              hidden: { opacity: 0, y: 14, scale: 0.96 },
+              visible: {
+                opacity: 1,
+                y: 0,
+                scale: 1,
+                transition: { type: 'spring', stiffness: 360, damping: 25 },
+              },
+            }}
+            whileHover={{ y: -2, transition: { duration: 0.15 } }}
+            onClick={() => {
+              setActiveTab('FATIGUE');
+              const el = document.getElementById('fleet-roster-section');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className={`p-4 rounded-xl border shadow-md flex items-center justify-between transition-all cursor-pointer ${
+              activeTab === 'FATIGUE'
+                ? 'border-rose-500 bg-[#170a1c] ring-1 ring-rose-500/50'
+                : 'border-sky-950/80 bg-[#0e172e] hover:border-rose-900/80'
+            }`}
+            title="Click to inspect crew fatigue profiles & suggested rest rotations"
+          >
+            <div>
+              <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider flex items-center gap-1">
+                <span>Crew Fatigue</span>
+                <span className="text-[9px] px-1 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800">
+                  AI
+                </span>
+              </div>
+              <div className="text-2xl font-bold font-mono mt-1 flex items-baseline gap-1">
+                <span className={fatigueSummary.averageFatigueScore > 40 ? 'text-rose-400' : 'text-emerald-400'}>
+                  {fatigueSummary.averageFatigueScore}%
+                </span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  {fatigueSummary.optimizedRotationsApplied ? 'Rest Active' : 'Night Peak'}
+                </span>
+              </div>
+              <div className="text-[10px] font-mono mt-0.5 flex items-center gap-1 text-slate-400">
+                <span className={fatigueSummary.criticalFatigueCount > 0 ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
+                  {fatigueSummary.criticalFatigueCount} Critical
+                </span>
+                <span className="text-slate-500">•</span>
+                <span className="text-sky-400">AI Optimize →</span>
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-rose-950/60 text-rose-400 border border-rose-800/60">
+              <HeartPulse className="w-5 h-5 animate-pulse" />
+            </div>
+          </motion.div>
+        </motion.div>
+      </AnimatePresence>
 
       {/* REAL-TIME RESOURCE GAP ALERTS SECTION */}
       <ResourceGapAlertsSection
@@ -1617,118 +1710,151 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
       </div>
 
       {/* CORRIDOR CAPACITY BENTO CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {metrics.map((cm) => {
-          const isSelected = selectedCorridorId === cm.corridorId;
-          const statusColors = {
-            BALANCED: 'border-emerald-800 bg-emerald-950/20 text-emerald-400',
-            NEAR_CAPACITY: 'border-amber-800 bg-amber-950/20 text-amber-400',
-            OVER_CAPACITY: 'border-rose-800 bg-rose-950/20 text-rose-400',
-            UNDER_UTILIZED: 'border-sky-800 bg-sky-950/20 text-sky-400',
-          };
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`corridor-cards-${selectedShift}-${chartView}-${filterCorridor}`}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          variants={{
+            hidden: { opacity: 0 },
+            visible: {
+              opacity: 1,
+              transition: {
+                staggerChildren: 0.07,
+                delayChildren: 0.03,
+              },
+            },
+            exit: { opacity: 0, transition: { duration: 0.12 } },
+          }}
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+        >
+          {metrics.map((cm) => {
+            const isSelected = selectedCorridorId === cm.corridorId;
+            const statusColors = {
+              BALANCED: 'border-emerald-800 bg-emerald-950/20 text-emerald-400',
+              NEAR_CAPACITY: 'border-amber-800 bg-amber-950/20 text-amber-400',
+              OVER_CAPACITY: 'border-rose-800 bg-rose-950/20 text-rose-400',
+              UNDER_UTILIZED: 'border-sky-800 bg-sky-950/20 text-sky-400',
+            };
 
-          return (
-            <div
-              key={cm.corridorId}
-              onClick={() => setSelectedCorridorId(isSelected ? null : cm.corridorId)}
-              className={`p-4 rounded-xl border transition-all cursor-pointer ${
-                isSelected
-                  ? 'border-sky-400 bg-[#101b38] shadow-lg shadow-sky-950/50'
-                  : 'border-slate-800/80 bg-[#0e172e] hover:border-slate-700'
-              }`}
-            >
-              {/* Corridor Header */}
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-bold text-slate-100 text-sm">{cm.shortCode}</span>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {cm.lengthKm} KM • {cm.tracksCount} Tracks
+            return (
+              <motion.div
+                key={cm.corridorId}
+                variants={{
+                  hidden: { opacity: 0, y: 18, scale: 0.95 },
+                  visible: {
+                    opacity: 1,
+                    y: 0,
+                    scale: 1,
+                    transition: {
+                      type: 'spring',
+                      stiffness: 380,
+                      damping: 26,
+                    },
+                  },
+                }}
+                whileHover={{ y: -3, transition: { duration: 0.15 } }}
+                onClick={() => setSelectedCorridorId(isSelected ? null : cm.corridorId)}
+                className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                  isSelected
+                    ? 'border-sky-400 bg-[#101b38] shadow-lg shadow-sky-950/50'
+                    : 'border-slate-800/80 bg-[#0e172e] hover:border-slate-700'
+                }`}
+              >
+                {/* Corridor Header */}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-slate-100 text-sm">{cm.shortCode}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {cm.lengthKm} KM • {cm.tracksCount} Tracks
+                    </span>
+                  </div>
+                  <span
+                    className={`text-[9px] font-mono px-2 py-0.5 rounded border uppercase font-semibold ${
+                      statusColors[cm.loadStatus]
+                    }`}
+                  >
+                    {cm.loadStatus.replace('_', ' ')}
                   </span>
                 </div>
-                <span
-                  className={`text-[9px] font-mono px-2 py-0.5 rounded border uppercase font-semibold ${
-                    statusColors[cm.loadStatus]
-                  }`}
-                >
-                  {cm.loadStatus.replace('_', ' ')}
-                </span>
-              </div>
 
-              <div className="text-xs font-semibold text-slate-200 truncate mb-3">{cm.corridorName}</div>
+                <div className="text-xs font-semibold text-slate-200 truncate mb-3">{cm.corridorName}</div>
 
-              {/* Progress bars */}
-              <div className="space-y-2.5 text-xs font-mono">
-                {/* Manpower Progress */}
-                <div>
-                  <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                    <span>Manpower</span>
-                    <span>
-                      {cm.totalManpowerAllocated} / {cm.manpowerCapacity} men
-                    </span>
+                {/* Progress bars */}
+                <div className="space-y-2.5 text-xs font-mono">
+                  {/* Manpower Progress */}
+                  <div>
+                    <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                      <span>Manpower</span>
+                      <span>
+                        {cm.totalManpowerAllocated} / {cm.manpowerCapacity} men
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          cm.totalManpowerAllocated > cm.manpowerCapacity
+                            ? 'bg-rose-500'
+                            : cm.totalManpowerAllocated / cm.manpowerCapacity > 0.85
+                            ? 'bg-amber-500'
+                            : 'bg-sky-500'
+                        }`}
+                        style={{
+                          width: `${Math.min(100, (cm.totalManpowerAllocated / cm.manpowerCapacity) * 100)}%`,
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        cm.totalManpowerAllocated > cm.manpowerCapacity
-                          ? 'bg-rose-500'
-                          : cm.totalManpowerAllocated / cm.manpowerCapacity > 0.85
-                          ? 'bg-amber-500'
-                          : 'bg-sky-500'
-                      }`}
-                      style={{
-                        width: `${Math.min(100, (cm.totalManpowerAllocated / cm.manpowerCapacity) * 100)}%`,
-                      }}
-                    />
+
+                  {/* Machinery Progress */}
+                  <div>
+                    <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                      <span>Machines</span>
+                      <span>
+                        {cm.totalMachineryAllocated} / {cm.machineryCapacity} slots
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          cm.totalMachineryAllocated > cm.machineryCapacity
+                            ? 'bg-rose-500'
+                            : cm.totalMachineryAllocated / cm.machineryCapacity >= 0.9
+                            ? 'bg-amber-500'
+                            : 'bg-purple-500'
+                        }`}
+                        style={{
+                          width: `${Math.min(100, (cm.totalMachineryAllocated / cm.machineryCapacity) * 100)}%`,
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* Machinery Progress */}
-                <div>
-                  <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                    <span>Machines</span>
-                    <span>
-                      {cm.totalMachineryAllocated} / {cm.machineryCapacity} slots
-                    </span>
+                {/* Bottlenecks / Notes */}
+                <div className="mt-3 pt-3 border-t border-slate-800 text-[10px] space-y-1">
+                  <div className="text-slate-400 flex items-center justify-between">
+                    <span>Supervisor In-Charge:</span>
+                    <span className="text-slate-200 font-mono truncate max-w-[140px]">{cm.supervisorInCharge}</span>
                   </div>
-                  <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        cm.totalMachineryAllocated > cm.machineryCapacity
-                          ? 'bg-rose-500'
-                          : cm.totalMachineryAllocated / cm.machineryCapacity >= 0.9
-                          ? 'bg-amber-500'
-                          : 'bg-purple-500'
-                      }`}
-                      style={{
-                        width: `${Math.min(100, (cm.totalMachineryAllocated / cm.machineryCapacity) * 100)}%`,
-                      }}
-                    />
-                  </div>
+                  {cm.bottleneckWarnings.length > 0 ? (
+                    <div className="text-amber-400 flex items-start gap-1 font-mono pt-1">
+                      <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                      <span className="line-clamp-2">{cm.bottleneckWarnings[0]}</span>
+                    </div>
+                  ) : (
+                    <div className="text-emerald-400 flex items-center gap-1 font-mono pt-1">
+                      <CheckCircle2 className="w-3 h-3 shrink-0" />
+                      <span>Headway & safety ratios clear</span>
+                    </div>
+                  )}
                 </div>
-              </div>
-
-              {/* Bottlenecks / Notes */}
-              <div className="mt-3 pt-3 border-t border-slate-800 text-[10px] space-y-1">
-                <div className="text-slate-400 flex items-center justify-between">
-                  <span>Supervisor In-Charge:</span>
-                  <span className="text-slate-200 font-mono truncate max-w-[140px]">{cm.supervisorInCharge}</span>
-                </div>
-                {cm.bottleneckWarnings.length > 0 ? (
-                  <div className="text-amber-400 flex items-start gap-1 font-mono pt-1">
-                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
-                    <span className="line-clamp-2">{cm.bottleneckWarnings[0]}</span>
-                  </div>
-                ) : (
-                  <div className="text-emerald-400 flex items-center gap-1 font-mono pt-1">
-                    <CheckCircle2 className="w-3 h-3 shrink-0" />
-                    <span>Headway & safety ratios clear</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              </motion.div>
+            );
+          })}
+        </motion.div>
+      </AnimatePresence>
 
       {/* FLEET ROSTERS & INVENTORY TABLE */}
       <div id="fleet-roster-section" className="bg-[#0e172e] rounded-xl border border-sky-950/80 shadow-md overflow-hidden">
@@ -1869,6 +1995,40 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
               <option value="CENTRAL_DEPOT">Central Depot Standby Reserve</option>
             </select>
 
+            {/* View Mode Toggle: Cards vs Table */}
+            {(activeTab === 'MACHINERY' || activeTab === 'MANPOWER') && (
+              <div className="inline-flex rounded-lg bg-slate-900 p-0.5 border border-slate-800">
+                <button
+                  type="button"
+                  id="btn-roster-view-cards"
+                  onClick={() => setRosterViewMode('CARDS')}
+                  className={`px-2.5 py-1 rounded text-xs font-mono font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                    rosterViewMode === 'CARDS'
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Display resources as allocation cards with animated layouts"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Cards</span>
+                </button>
+                <button
+                  type="button"
+                  id="btn-roster-view-table"
+                  onClick={() => setRosterViewMode('TABLE')}
+                  className={`px-2.5 py-1 rounded text-xs font-mono font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                    rosterViewMode === 'TABLE'
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Display resources as tabular roster"
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>Table</span>
+                </button>
+              </div>
+            )}
+
             {/* Suggest Optimized Shift Button in Manpower Tab Toolbar */}
             {activeTab === 'MANPOWER' && (
               <button
@@ -1962,199 +2122,485 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
             />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            {activeTab === 'MACHINERY' ? (
-              <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-mono text-[11px] uppercase">
-                  <th className="p-3">Machine ID & Type</th>
-                  <th className="p-3">Corridor & Section</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3">Operator / Pilot</th>
-                  <th className="p-3">Fuel & Health</th>
-                  <th className="p-3">Speed Limit</th>
-                  <th className="p-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono">
-                {filteredMachinery.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500 text-xs">
-                      No track machines found matching the selected filters.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredMachinery.map((m) => {
-                    const isStandby = m.status === 'STANDBY_RESERVE';
-                    return (
-                      <tr key={m.id} className="hover:bg-slate-900/40 transition-colors">
-                        <td className="p-3">
-                          <div className="font-bold text-slate-100 flex items-center gap-1.5">
-                            <span className="text-purple-400">{m.id}</span>
-                            <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-purple-950/80 text-purple-300 border border-purple-800">
-                              {formatMachineryType(m.type)}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-slate-300 font-sans mt-0.5">{m.name}</div>
-                          <div className="text-[10px] text-slate-500">{m.model}</div>
-                        </td>
-
-                        <td className="p-3">
-                          <div className="flex items-center gap-1 font-semibold text-slate-200">
-                            <MapPin className="w-3 h-3 text-sky-400" />
-                            <span>{m.corridorId === 'CENTRAL_DEPOT' ? 'Central TMD Holding' : m.corridorId}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-400 truncate max-w-xs">{m.currentSection}</div>
-                          {m.assignedBlockId && (
-                            <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-sky-300">
-                              Block: {m.assignedBlockId}
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="p-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                              isStandby
-                                ? 'bg-amber-950/70 border-amber-800 text-amber-300'
-                                : 'bg-emerald-950/70 border-emerald-800 text-emerald-300'
-                            }`}
-                          >
-                            {isStandby ? 'STANDBY RESERVE' : 'DEPLOYED ON TRACK'}
-                          </span>
-                        </td>
-
-                        <td className="p-3 font-sans">
-                          <div className="text-slate-200 font-medium">{m.operatorName}</div>
-                          <div className="text-[10px] text-slate-500 font-mono">Base: {m.homeDepot}</div>
-                        </td>
-
-                        <td className="p-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-slate-300">{m.fuelLevelPct}%</span>
-                            <div className="w-14 bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
-                              <div
-                                className={`h-full ${
-                                  m.fuelLevelPct > 70 ? 'bg-emerald-500' : m.fuelLevelPct > 40 ? 'bg-amber-500' : 'bg-rose-500'
-                                }`}
-                                style={{ width: `${m.fuelLevelPct}%` }}
-                              />
-                            </div>
-                          </div>
-                          <div className="text-[10px] text-slate-400">Health Index: {m.healthIndex}%</div>
-                        </td>
-
-                        <td className="p-3 text-slate-300">{m.speedLimitKmph} km/h</td>
-
-                        <td className="p-3 text-right">
-                          <button
-                            onClick={() => openReallocateForMachine(m)}
-                            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 text-[11px] font-mono flex items-center gap-1 ml-auto"
-                          >
-                            <ArrowRightLeft className="w-3 h-3" />
-                            <span>Mobilize</span>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          ) : (
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-mono text-[11px] uppercase">
-                  <th className="p-3">Gang ID & Unit Name</th>
-                  <th className="p-3">Department & Trade</th>
-                  <th className="p-3">Headcount</th>
-                  <th className="p-3">Assigned Shift</th>
-                  <th className="p-3">Corridor & Section</th>
-                  <th className="p-3">Supervisor In-Charge</th>
-                  <th className="p-3">Equipment Inventory</th>
-                  <th className="p-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono">
-                {filteredGangs.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-500 text-xs">
-                      No maintenance gangs found matching the selected filters.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredGangs.map((g) => {
-                    const isStandby = g.status === 'STANDBY';
-                    return (
-                      <tr key={g.id} className="hover:bg-slate-900/40 transition-colors">
-                        <td className="p-3">
-                          <div className="font-bold text-slate-100 flex items-center gap-1.5">
-                            <span className="text-sky-400">{g.id}</span>
-                            <span
-                              className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold ${
+          <div>
+            {rosterViewMode === 'CARDS' ? (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`roster-cards-${activeTab}-${selectedShift}-${filterCorridor}-${searchQuery}`}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  variants={{
+                    hidden: { opacity: 0 },
+                    visible: {
+                      opacity: 1,
+                      transition: {
+                        staggerChildren: 0.05,
+                        delayChildren: 0.02,
+                      },
+                    },
+                    exit: { opacity: 0, transition: { duration: 0.1 } },
+                  }}
+                  className="p-4 bg-[#080d1e]"
+                >
+                  {activeTab === 'MACHINERY' ? (
+                    filteredMachinery.length === 0 ? (
+                      <div className="p-12 text-center text-slate-500 text-xs font-mono bg-slate-900/40 rounded-xl border border-slate-800/60">
+                        No track machines found matching the selected filters.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {filteredMachinery.map((m) => {
+                          const isStandby = m.status === 'STANDBY_RESERVE';
+                          return (
+                            <motion.div
+                              key={m.id}
+                              variants={{
+                                hidden: { opacity: 0, y: 16, scale: 0.96 },
+                                visible: {
+                                  opacity: 1,
+                                  y: 0,
+                                  scale: 1,
+                                  transition: {
+                                    type: 'spring',
+                                    stiffness: 360,
+                                    damping: 25,
+                                  },
+                                },
+                              }}
+                              whileHover={{ y: -3, transition: { duration: 0.15 } }}
+                              className={`rounded-xl p-4 border transition-all flex flex-col justify-between ${
                                 isStandby
-                                  ? 'bg-amber-950/80 border-amber-800 text-amber-300'
-                                  : 'bg-emerald-950/80 border-emerald-800 text-emerald-300'
-                              }`}
+                                  ? 'bg-[#10152b] border-slate-800 hover:border-purple-600/70'
+                                  : 'bg-[#0e172e] border-sky-950/80 hover:border-sky-600/70'
+                              } shadow-md`}
                             >
-                              {isStandby ? 'STANDBY' : 'ACTIVE'}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-slate-300 font-sans mt-0.5">{g.name}</div>
-                        </td>
+                              <div>
+                                {/* Card Header */}
+                                <div className="flex items-start justify-between gap-2 mb-2">
+                                  <div>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-mono font-bold text-sm text-purple-400">{m.id}</span>
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-950/80 text-purple-300 border border-purple-800 font-semibold">
+                                        {formatMachineryType(m.type)}
+                                      </span>
+                                    </div>
+                                    <div className="text-xs font-semibold text-slate-100 font-sans mt-1">{m.name}</div>
+                                    <div className="text-[10px] text-slate-400 font-mono">{m.model}</div>
+                                  </div>
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold border uppercase shrink-0 ${
+                                      isStandby
+                                        ? 'bg-amber-950/80 border-amber-800 text-amber-300'
+                                        : 'bg-emerald-950/80 border-emerald-800 text-emerald-300'
+                                    }`}
+                                  >
+                                    {isStandby ? 'STANDBY' : 'DEPLOYED'}
+                                  </span>
+                                </div>
 
-                        <td className="p-3">
-                          <div className="text-slate-200 font-semibold">{g.department}</div>
-                          <div className="text-[10px] text-slate-400">{g.trade.replace('_', ' ')}</div>
-                        </td>
+                                {/* Section / Location */}
+                                <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 my-2.5 space-y-1 text-xs font-mono">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-slate-400 text-[10px]">Depot / Location:</span>
+                                    <span className="text-slate-200 font-semibold flex items-center gap-1">
+                                      <MapPin className="w-3 h-3 text-sky-400" />
+                                      <span>{m.corridorId === 'CENTRAL_DEPOT' ? 'Central TMD Holding' : m.corridorId}</span>
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-300 truncate" title={m.currentSection}>
+                                    {m.currentSection}
+                                  </div>
+                                  {m.assignedBlockId && (
+                                    <div className="pt-0.5">
+                                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-sky-300 border border-slate-700">
+                                        Block: {m.assignedBlockId}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
 
-                        <td className="p-3">
-                          <div className="text-sm font-bold text-slate-100">{g.headcount}</div>
-                          <div className="text-[10px] text-slate-400">Personnel</div>
-                        </td>
+                                {/* Operator & Pilot */}
+                                <div className="text-[11px] space-y-0.5 mb-2 font-mono">
+                                  <div className="text-slate-200 flex items-center justify-between">
+                                    <span className="text-slate-400 text-[10px]">Operator:</span>
+                                    <span className="font-semibold">{m.operatorName}</span>
+                                  </div>
+                                  <div className="text-slate-400 text-[10px] flex items-center justify-between">
+                                    <span>Home TMD Base:</span>
+                                    <span className="text-slate-300">{m.homeDepot}</span>
+                                  </div>
+                                </div>
 
-                        <td className="p-3">
-                          {getShiftBadge(g.shift || 'DAY_SHIFT')}
-                        </td>
+                                {/* Fuel & Health */}
+                                <div className="space-y-1.5 pt-2 border-t border-slate-800/80 text-[10px] font-mono">
+                                  <div>
+                                    <div className="flex justify-between text-slate-400 mb-0.5">
+                                      <span>Fuel Reserve</span>
+                                      <span className="font-bold text-slate-200">{m.fuelLevelPct}%</span>
+                                    </div>
+                                    <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                                      <div
+                                        className={`h-full ${
+                                          m.fuelLevelPct > 70 ? 'bg-emerald-500' : m.fuelLevelPct > 40 ? 'bg-amber-500' : 'bg-rose-500'
+                                        }`}
+                                        style={{ width: `${m.fuelLevelPct}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center justify-between text-slate-400">
+                                    <span>Health Index:</span>
+                                    <span className="font-bold text-slate-200">{m.healthIndex}%</span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-slate-400">
+                                    <span>Speed Limit:</span>
+                                    <span className="font-bold text-slate-200">{m.speedLimitKmph} km/h</span>
+                                  </div>
+                                </div>
+                              </div>
 
-                        <td className="p-3">
-                          <div className="flex items-center gap-1 font-semibold text-slate-200">
-                            <MapPin className="w-3 h-3 text-sky-400" />
-                            <span>{g.corridorId}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-400 truncate max-w-xs">{g.assignedSection}</div>
-                        </td>
+                              {/* Card Footer Action */}
+                              <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => openReallocateForMachine(m)}
+                                  className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                                >
+                                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                                  <span>Mobilize Machine</span>
+                                </button>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    )
+                  ) : (
+                    filteredGangs.length === 0 ? (
+                      <div className="p-12 text-center text-slate-500 text-xs font-mono bg-slate-900/40 rounded-xl border border-slate-800/60">
+                        No maintenance gangs found matching the selected filters.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {filteredGangs.map((g) => {
+                          const isStandby = g.status === 'STANDBY';
+                          return (
+                            <motion.div
+                              key={g.id}
+                              variants={{
+                                hidden: { opacity: 0, y: 16, scale: 0.96 },
+                                visible: {
+                                  opacity: 1,
+                                  y: 0,
+                                  scale: 1,
+                                  transition: {
+                                    type: 'spring',
+                                    stiffness: 360,
+                                    damping: 25,
+                                  },
+                                },
+                              }}
+                              whileHover={{ y: -3, transition: { duration: 0.15 } }}
+                              className={`rounded-xl p-4 border transition-all flex flex-col justify-between ${
+                                isStandby
+                                  ? 'bg-[#10152b] border-slate-800 hover:border-sky-600/70'
+                                  : 'bg-[#0e172e] border-sky-950/80 hover:border-sky-600/70'
+                              } shadow-md`}
+                            >
+                              <div>
+                                {/* Card Header */}
+                                <div className="flex items-start justify-between gap-2 mb-2">
+                                  <div>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-mono font-bold text-sm text-sky-400">{g.id}</span>
+                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border uppercase font-semibold bg-sky-950/80 border-sky-800 text-sky-300">
+                                        {g.trade.replace('_', ' ')}
+                                      </span>
+                                    </div>
+                                    <div className="text-xs font-semibold text-slate-100 font-sans mt-1">{g.name}</div>
+                                    <div className="text-[10px] text-slate-400 font-mono">{g.department}</div>
+                                  </div>
+                                  <div className="flex flex-col items-end gap-1">
+                                    <span
+                                      className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold border uppercase shrink-0 ${
+                                        isStandby
+                                          ? 'bg-amber-950/80 border-amber-800 text-amber-300'
+                                          : 'bg-emerald-950/80 border-emerald-800 text-emerald-300'
+                                      }`}
+                                    >
+                                      {isStandby ? 'STANDBY' : 'ACTIVE'}
+                                    </span>
+                                    {getShiftBadge(g.shift || 'DAY_SHIFT')}
+                                  </div>
+                                </div>
 
-                        <td className="p-3 font-sans">
-                          <div className="text-slate-200 font-medium">{g.supervisor}</div>
-                          <div className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
-                            <ShieldCheck className="w-3 h-3" />
-                            <span>Safety Briefed</span>
-                          </div>
-                        </td>
+                                {/* Headcount & Location */}
+                                <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 my-2.5 space-y-1 text-xs font-mono">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-slate-400 text-[10px]">Headcount:</span>
+                                    <span className="text-slate-100 font-bold flex items-center gap-1">
+                                      <Users className="w-3.5 h-3.5 text-sky-400" />
+                                      <span>{g.headcount} Personnel</span>
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-slate-400 text-[10px]">Corridor:</span>
+                                    <span className="text-slate-200 font-semibold flex items-center gap-1">
+                                      <MapPin className="w-3 h-3 text-sky-400" />
+                                      <span>{g.corridorId}</span>
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-300 truncate" title={g.assignedSection}>
+                                    {g.assignedSection}
+                                  </div>
+                                </div>
 
-                        <td className="p-3 text-[10px] text-slate-400 max-w-xs truncate font-sans">
-                          {g.equippedWith || 'Standard track maintenance tools'}
-                        </td>
+                                {/* Supervisor & Safety Briefing */}
+                                <div className="text-[11px] space-y-1 mb-2 font-mono">
+                                  <div className="text-slate-200 flex items-center justify-between">
+                                    <span className="text-slate-400 text-[10px]">Supervisor:</span>
+                                    <span className="font-semibold truncate max-w-[150px]">{g.supervisor}</span>
+                                  </div>
+                                  <div className="text-emerald-400 text-[10px] flex items-center gap-1">
+                                    <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                                    <span>Safety Briefed (100% IRTMM)</span>
+                                  </div>
+                                </div>
 
-                        <td className="p-3 text-right">
-                          <button
-                            onClick={() => openReallocateForGang(g)}
-                            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 text-[11px] font-mono flex items-center gap-1 ml-auto"
-                          >
-                            <ArrowRightLeft className="w-3 h-3" />
-                            <span>Redeploy</span>
-                          </button>
-                        </td>
+                                {/* Equipment Tools */}
+                                <div className="pt-2 border-t border-slate-800/80 text-[10px] font-mono text-slate-400 line-clamp-2">
+                                  <span className="text-slate-500">Equipped: </span>
+                                  <span>{g.equippedWith || 'Standard track maintenance tools'}</span>
+                                </div>
+                              </div>
+
+                              {/* Card Footer Action */}
+                              <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => openReallocateForGang(g)}
+                                  className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                                >
+                                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                                  <span>Redeploy Gang</span>
+                                </button>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    )
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            ) : (
+              <div className="overflow-x-auto">
+                {activeTab === 'MACHINERY' ? (
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-mono text-[11px] uppercase">
+                        <th className="p-3">Machine ID & Type</th>
+                        <th className="p-3">Corridor & Section</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3">Operator / Pilot</th>
+                        <th className="p-3">Fuel & Health</th>
+                        <th className="p-3">Speed Limit</th>
+                        <th className="p-3 text-right">Actions</th>
                       </tr>
-                    );
-                  })
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono">
+                      {filteredMachinery.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-slate-500 text-xs">
+                            No track machines found matching the selected filters.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredMachinery.map((m) => {
+                          const isStandby = m.status === 'STANDBY_RESERVE';
+                          return (
+                            <motion.tr
+                              key={m.id}
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.18 }}
+                              className="hover:bg-slate-900/40 transition-colors"
+                            >
+                              <td className="p-3">
+                                <div className="font-bold text-slate-100 flex items-center gap-1.5">
+                                  <span className="text-purple-400">{m.id}</span>
+                                  <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-purple-950/80 text-purple-300 border border-purple-800">
+                                    {formatMachineryType(m.type)}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-300 font-sans mt-0.5">{m.name}</div>
+                                <div className="text-[10px] text-slate-500">{m.model}</div>
+                              </td>
+
+                              <td className="p-3">
+                                <div className="flex items-center gap-1 font-semibold text-slate-200">
+                                  <MapPin className="w-3 h-3 text-sky-400" />
+                                  <span>{m.corridorId === 'CENTRAL_DEPOT' ? 'Central TMD Holding' : m.corridorId}</span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 truncate max-w-xs">{m.currentSection}</div>
+                                {m.assignedBlockId && (
+                                  <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-sky-300">
+                                    Block: {m.assignedBlockId}
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="p-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                                    isStandby
+                                      ? 'bg-amber-950/70 border-amber-800 text-amber-300'
+                                      : 'bg-emerald-950/70 border-emerald-800 text-emerald-300'
+                                  }`}
+                                >
+                                  {isStandby ? 'STANDBY RESERVE' : 'DEPLOYED ON TRACK'}
+                                </span>
+                              </td>
+
+                              <td className="p-3 font-sans">
+                                <div className="text-slate-200 font-medium">{m.operatorName}</div>
+                                <div className="text-[10px] text-slate-500 font-mono">Base: {m.homeDepot}</div>
+                              </td>
+
+                              <td className="p-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] text-slate-300">{m.fuelLevelPct}%</span>
+                                  <div className="w-14 bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                                    <div
+                                      className={`h-full ${
+                                        m.fuelLevelPct > 70 ? 'bg-emerald-500' : m.fuelLevelPct > 40 ? 'bg-amber-500' : 'bg-rose-500'
+                                      }`}
+                                      style={{ width: `${m.fuelLevelPct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="text-[10px] text-slate-400">Health Index: {m.healthIndex}%</div>
+                              </td>
+
+                              <td className="p-3 text-slate-300">{m.speedLimitKmph} km/h</td>
+
+                              <td className="p-3 text-right">
+                                <button
+                                  onClick={() => openReallocateForMachine(m)}
+                                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 text-[11px] font-mono flex items-center gap-1 ml-auto cursor-pointer"
+                                >
+                                  <ArrowRightLeft className="w-3 h-3" />
+                                  <span>Mobilize</span>
+                                </button>
+                              </td>
+                            </motion.tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-mono text-[11px] uppercase">
+                        <th className="p-3">Gang ID & Unit Name</th>
+                        <th className="p-3">Department & Trade</th>
+                        <th className="p-3">Headcount</th>
+                        <th className="p-3">Assigned Shift</th>
+                        <th className="p-3">Corridor & Section</th>
+                        <th className="p-3">Supervisor In-Charge</th>
+                        <th className="p-3">Equipment Inventory</th>
+                        <th className="p-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono">
+                      {filteredGangs.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="p-8 text-center text-slate-500 text-xs">
+                            No maintenance gangs found matching the selected filters.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredGangs.map((g) => {
+                          const isStandby = g.status === 'STANDBY';
+                          return (
+                            <motion.tr
+                              key={g.id}
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.18 }}
+                              className="hover:bg-slate-900/40 transition-colors"
+                            >
+                              <td className="p-3">
+                                <div className="font-bold text-slate-100 flex items-center gap-1.5">
+                                  <span className="text-sky-400">{g.id}</span>
+                                  <span
+                                    className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold ${
+                                      isStandby
+                                        ? 'bg-amber-950/80 border-amber-800 text-amber-300'
+                                        : 'bg-emerald-950/80 border-emerald-800 text-emerald-300'
+                                    }`}
+                                  >
+                                    {isStandby ? 'STANDBY' : 'ACTIVE'}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-300 font-sans mt-0.5">{g.name}</div>
+                              </td>
+
+                              <td className="p-3">
+                                <div className="text-slate-200 font-semibold">{g.department}</div>
+                                <div className="text-[10px] text-slate-400">{g.trade.replace('_', ' ')}</div>
+                              </td>
+
+                              <td className="p-3">
+                                <div className="text-sm font-bold text-slate-100">{g.headcount}</div>
+                                <div className="text-[10px] text-slate-400">Personnel</div>
+                              </td>
+
+                              <td className="p-3">
+                                {getShiftBadge(g.shift || 'DAY_SHIFT')}
+                              </td>
+
+                              <td className="p-3">
+                                <div className="flex items-center gap-1 font-semibold text-slate-200">
+                                  <MapPin className="w-3 h-3 text-sky-400" />
+                                  <span>{g.corridorId}</span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 truncate max-w-xs">{g.assignedSection}</div>
+                              </td>
+
+                              <td className="p-3 font-sans">
+                                <div className="text-slate-200 font-medium">{g.supervisor}</div>
+                                <div className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
+                                  <ShieldCheck className="w-3 h-3" />
+                                  <span>Safety Briefed</span>
+                                </div>
+                              </td>
+
+                              <td className="p-3 text-[10px] text-slate-400 max-w-xs truncate font-sans">
+                                {g.equippedWith || 'Standard track maintenance tools'}
+                              </td>
+
+                              <td className="p-3 text-right">
+                                <button
+                                  onClick={() => openReallocateForGang(g)}
+                                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 border border-slate-700 text-[11px] font-mono flex items-center gap-1 ml-auto cursor-pointer"
+                                >
+                                  <ArrowRightLeft className="w-3 h-3" />
+                                  <span>Redeploy</span>
+                                </button>
+                              </td>
+                            </motion.tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
                 )}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* STATUTORY IRTMM RULES & CAPACITY PRINCIPLES BANNER */}

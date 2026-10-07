@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   AlertTriangle,
   AlertCircle,
@@ -667,14 +668,42 @@ export const ResourceGapAlertsSection: React.FC<ResourceGapAlertsSectionProps> =
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
-              {filteredAlerts.map((alert) => {
-                const isCritical = alert.severity === 'CRITICAL';
-                const hasStrobeBeacon = effectiveSettings.enableAudioVisualBeacon && isCritical;
-                return (
-                  <div
-                    key={alert.id}
-                    className={`rounded-xl p-4 border transition-all duration-200 flex flex-col justify-between ${
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`alerts-grid-${currentSelectedShift}-${gapFilter}`}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                variants={{
+                  hidden: { opacity: 0 },
+                  visible: {
+                    opacity: 1,
+                    transition: {
+                      staggerChildren: 0.06,
+                      delayChildren: 0.02,
+                    },
+                  },
+                  exit: { opacity: 0, transition: { duration: 0.12 } },
+                }}
+                className="grid grid-cols-1 lg:grid-cols-2 gap-3.5"
+              >
+                {filteredAlerts.map((alert) => {
+                  const isCritical = alert.severity === 'CRITICAL';
+                  const hasStrobeBeacon = effectiveSettings.enableAudioVisualBeacon && isCritical;
+                  return (
+                    <motion.div
+                      key={alert.id}
+                      variants={{
+                        hidden: { opacity: 0, y: 16, scale: 0.97 },
+                        visible: {
+                          opacity: 1,
+                          y: 0,
+                          scale: 1,
+                          transition: { type: 'spring', stiffness: 360, damping: 26 },
+                        },
+                      }}
+                      whileHover={{ y: -2, transition: { duration: 0.15 } }}
+                      className={`rounded-xl p-4 border transition-all duration-200 flex flex-col justify-between ${
                       isCritical
                         ? `bg-rose-950/20 border-rose-800/60 hover:border-rose-600 ${
                             hasStrobeBeacon ? 'ring-1 ring-rose-500/60 shadow-lg shadow-rose-950/40' : ''
@@ -823,10 +852,11 @@ export const ResourceGapAlertsSection: React.FC<ResourceGapAlertsSectionProps> =
                         <span>Mobilize Standby Reserve</span>
                       </button>
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })}
-            </div>
+            </motion.div>
+          </AnimatePresence>
           )}
         </div>
       )}

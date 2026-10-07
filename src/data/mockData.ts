@@ -387,7 +387,7 @@ export const INITIAL_CONFLICTS: Conflict[] = [
     assetId: 'A018',
     corridorId: 'C001',
     conflictType: 'TRAIN_OVERLAP',
-    severity: 'HIGH',
+    severity: 'MEDIUM',
     description: 'BLK-S018 Audio Frequency Track Circuit TC-104 tuning clashes with morning departure surge for TR091.',
     status: 'OPEN',
     maintenanceInterval: '08:30–10:00',
@@ -1477,58 +1477,342 @@ export const ALTERNATIVE_SLOTS_DB: Record<string, { [blockId: string]: any[] }> 
   },
 };
 
-export const INITIAL_AUDIT_LOGS: AuditLog[] = [
-  {
-    id: 'AUD-001',
-    timestamp: '2026-09-05T10:14:22Z',
-    user: 'Smt. Ananya Sen (Railway Planner)',
-    role: 'RAILWAY_PLANNER',
-    action: 'Optimization Engine Invocation',
-    object: 'AI Planning Engine / 42 Blocks',
-    status: 'SUCCESS',
-    details: 'Triggered batch scheduling for 35 maintenance requests against 120 train movements.',
-  },
-  {
-    id: 'AUD-002',
-    timestamp: '2026-09-05T10:14:35Z',
-    user: 'AI Engine / Conflict Detector',
-    role: 'SUPER_ADMIN',
-    action: 'Initial Conflict Analysis Completed',
-    object: 'Corridors C001, C002, C003, C004',
-    status: 'WARNING',
-    details: '23 initial conflicts detected across raw requests. 18 resolved by algorithm; 5 require manual planner review.',
-  },
-  {
-    id: 'AUD-003',
-    timestamp: '2026-09-05T10:15:10Z',
-    user: 'Safety Gate Automation',
-    role: 'SUPER_ADMIN',
-    action: 'Final Safety Validation Started',
-    object: 'Schedule Publication Gate',
-    status: 'LOCKED',
-    details: 'Publishing locked: 5 critical issues detected on corridors C002, C003, C004.',
-  },
-  {
-    id: 'AUD-004',
-    timestamp: '2026-09-05T09:40:12Z',
-    user: 'Er. Rajesh Verma',
-    role: 'ENGINEERING_OFFICER',
-    action: 'Maintenance Request Submitted',
-    object: 'REQ-2026-035 (Asset A018)',
-    status: 'SUCCESS',
-    details: 'Ballast screening request submitted for C003; synchronized to backend.',
-  },
-  {
-    id: 'AUD-005',
-    timestamp: '2026-09-05T09:12:00Z',
-    user: 'Vikram Joshi',
-    role: 'ST_OFFICER',
-    action: 'Defect Submitted',
-    object: 'DEF-2026-055 (Asset A023)',
-    status: 'SUCCESS',
-    details: 'ABS Signaling intermittent lamp voltage defect registered on C004.',
-  },
-];
+export const generateHistoricalAuditLogs = (): AuditLog[] => {
+  const currentLogs: AuditLog[] = [
+    {
+      id: 'AUD-001',
+      timestamp: '2026-09-05T10:14:22Z',
+      user: 'Smt. Ananya Sen (Railway Planner)',
+      role: 'RAILWAY_PLANNER',
+      action: 'Optimization Engine Invocation',
+      object: 'AI Planning Engine / 42 Blocks',
+      status: 'SUCCESS',
+      severity: 'SUCCESS',
+      category: 'OPTIMIZATION',
+      details: 'Triggered batch scheduling for 35 maintenance requests against 120 train movements.',
+    },
+    {
+      id: 'AUD-002',
+      timestamp: '2026-09-05T10:14:35Z',
+      user: 'AI Engine / Conflict Detector',
+      role: 'SUPER_ADMIN',
+      action: 'Initial Conflict Analysis Completed',
+      object: 'Corridors C001, C002, C003, C004',
+      status: 'WARNING',
+      severity: 'WARNING',
+      category: 'CONFLICT_RESOLUTION',
+      details: '23 initial conflicts detected across raw requests. 18 resolved by algorithm; 5 require manual planner review.',
+    },
+    {
+      id: 'AUD-003',
+      timestamp: '2026-09-05T10:15:10Z',
+      user: 'Safety Gate Automation',
+      role: 'SUPER_ADMIN',
+      action: 'Final Safety Validation Started',
+      object: 'Schedule Publication Gate',
+      status: 'LOCKED',
+      severity: 'CRITICAL',
+      category: 'SAFETY_GATE',
+      details: 'Publishing locked: 5 critical issues detected on corridors C002, C003, C004.',
+    },
+    {
+      id: 'AUD-004',
+      timestamp: '2026-09-05T09:40:12Z',
+      user: 'Er. Rajesh Verma',
+      role: 'ENGINEERING_OFFICER',
+      action: 'Maintenance Request Submitted',
+      object: 'REQ-2026-035 (Asset A018)',
+      status: 'SUCCESS',
+      severity: 'SUCCESS',
+      category: 'MAINTENANCE_EXECUTION',
+      details: 'Ballast screening request submitted for C003; synchronized to backend.',
+    },
+    {
+      id: 'AUD-005',
+      timestamp: '2026-09-05T09:12:00Z',
+      user: 'Vikram Joshi',
+      role: 'ST_OFFICER',
+      action: 'Defect Submitted',
+      object: 'DEF-2026-055 (Asset A023)',
+      status: 'SUCCESS',
+      severity: 'NORMAL',
+      category: 'DEFECT_REPORTING',
+      details: 'ABS Signaling intermittent lamp voltage defect registered on C004.',
+    },
+  ];
+
+  // Curated historical telemetry events across the last 30 days (2026-08-07 to 2026-09-04)
+  const historicalDaysSpec = [
+    {
+      daysAgo: 1,
+      date: '2026-09-04',
+      events: [
+        { time: '04:15:00Z', user: 'TRD Controller', role: 'ENGINEERING_OFFICER' as const, action: 'OHE Power Clearance Issued', object: 'C001 KM 12/0-16/0', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'TRACTION_OHE', details: 'Pre-dawn maintenance isolation grounded successfully.' },
+        { time: '11:30:20Z', user: 'Smt. Ananya Sen', role: 'RAILWAY_PLANNER' as const, action: 'Schedule Re-optimization', object: 'Genetic Engine / 38 Blocks', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: 'Zero headway violations across all 4 corridors.' },
+        { time: '16:45:10Z', user: 'Signal Inspector Verma', role: 'ST_OFFICER' as const, action: 'Interlocking Health Cycle Check', object: 'C002 Western High Speed', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'SIGNALING', details: 'All 64 route relays verified nominal.' },
+        { time: '22:10:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: 'Night Mega Block Pre-Validation', object: 'C003 Heavy Freight', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'Block shadow windows aligned with freight pauses.' }
+      ]
+    },
+    {
+      daysAgo: 2,
+      date: '2026-09-03',
+      events: [
+        { time: '06:20:00Z', user: 'P-Way In-Charge', role: 'ENGINEERING_OFFICER' as const, action: 'Ultrasonic Rail Flaw Audit (USFD)', object: 'C001 Rail Welds 14-22', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'TRACK_INSPECTION', details: 'Zero transverse fissures detected.' },
+        { time: '13:10:45Z', user: 'AI Conflict Detector', role: 'SUPER_ADMIN' as const, action: 'Auto-Resolved Freight Conflict', object: 'C004 Express Spur', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'CONFLICT_RESOLUTION', details: 'Buffer increased by 18 minutes to accommodate mail rake.' },
+        { time: '19:40:00Z', user: 'Chief Controller Raman', role: 'RAILWAY_PLANNER' as const, action: 'Slot Optimization Complete', object: 'All Corridors', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: 'Fleet roster capacity utilization at 91.4%.' }
+      ]
+    },
+    {
+      daysAgo: 3,
+      date: '2026-09-02',
+      events: [
+        // Peak Day: 99.8% Reliability
+        { time: '02:00:00Z', user: 'Track Machine Pilot', role: 'ENGINEERING_OFFICER' as const, action: 'Continuous Tamping Signoff', object: 'CSM-09-3X-401 (C001)', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'MAINTENANCE_EXECUTION', details: '3.8km continuous tamping executed; track geometry restored to 99.4 index.' },
+        { time: '08:30:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: '100% Zero-Defect Safety Clearance', object: 'All Corridors', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'All 7 safety gates cleared with zero overrides.' },
+        { time: '15:15:00Z', user: 'KAVACH Ground System', role: 'SUPER_ADMIN' as const, action: 'Station Balise RF Health Verification', object: 'Corridors C001 & C002', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'KAVACH_TELEMETRY', details: '100% packets acknowledged with sub-20ms latency.' },
+        { time: '21:50:00Z', user: 'Er. Rajesh Verma', role: 'ENGINEERING_OFFICER' as const, action: 'Bridge Inspection Certified', object: 'Bridge BR-104 (C001)', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'TRACK_INSPECTION', details: 'Bedplate expansion joints certified nominal.' }
+      ]
+    },
+    {
+      daysAgo: 4,
+      date: '2026-09-01',
+      events: [
+        { time: '05:40:00Z', user: 'TRD Power Controller', role: 'ENGINEERING_OFFICER' as const, action: 'Catenary Wire Tension Measurement', object: 'C004 Sector 3', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'TRACTION_OHE', details: 'Contact wire height verified within 5.50m - 5.80m tolerance.' },
+        { time: '12:00:15Z', user: 'Signal Maintenance Team', role: 'ST_OFFICER' as const, action: 'Point Machine Detection Gap Audit', object: 'Switch 102B (C002)', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'SIGNALING', details: 'Obstacle test passed at 3.2mm limit.' },
+        { time: '18:25:30Z', user: 'AI Planning Engine', role: 'SUPER_ADMIN' as const, action: 'Pre-Shift Conflict Elimination', object: 'C003 Heavy Freight', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: '12 freight movements rescheduled without congestion.' }
+      ]
+    },
+    {
+      daysAgo: 5,
+      date: '2026-08-31',
+      events: [
+        { time: '03:10:00Z', user: 'Track Gang Supervisor', role: 'ENGINEERING_OFFICER' as const, action: 'Manual P-Way Deep Screening Audit', object: 'C001 KM 09/2', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'MAINTENANCE_EXECUTION', details: 'Ballast cushion replenished and compacted.' },
+        { time: '14:20:00Z', user: 'Vikram Joshi', role: 'ST_OFFICER' as const, action: 'Axle Counter Wheel Sensor Ping', object: 'Dual Axle Counter DAC-08', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'SIGNALING', details: 'Phase drift well within 5% tolerance.' },
+        { time: '20:15:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: 'Night Slot Safety Gate Validation', object: 'C002 High Speed Spur', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'All safety buffers verified.' }
+      ]
+    },
+    {
+      daysAgo: 6,
+      date: '2026-08-30',
+      events: [
+        { time: '07:45:00Z', user: 'P-Way In-Charge', role: 'ENGINEERING_OFFICER' as const, action: 'Speed Restriction Revocation Log', object: 'C003 KM 28/0', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'TRACK_INSPECTION', details: '30 km/h caution order canceled; track cleared for 100 km/h line speed.' },
+        { time: '16:00:00Z', user: 'Smt. Ananya Sen', role: 'RAILWAY_PLANNER' as const, action: 'Multi-corridor Slot Optimization', object: 'Corridors C001-C004', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: 'Conflict density dropped below 0.02 conflicts/km.' }
+      ]
+    },
+    {
+      daysAgo: 7,
+      date: '2026-08-29',
+      events: [
+        { time: '09:12:00Z', user: 'Signal Inspector', role: 'ST_OFFICER' as const, action: 'Track Circuit Drop Voltage Log', object: 'C001 TC-14B', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'SIGNALING', details: 'Relay pick-up voltage verified at 1.45V nominal.' },
+        { time: '18:30:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: 'Corridor Safety Gate Audit', object: 'C004 Express Link', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'Automated clearance issued for 8 maintenance blocks.' }
+      ]
+    },
+    {
+      daysAgo: 8,
+      date: '2026-08-28',
+      events: [
+        // Dip / Warning Day: 96.1%
+        { time: '03:40:00Z', user: 'AI Conflict Detector', role: 'SUPER_ADMIN' as const, action: 'Priority Rake Conflict Detected', object: 'C004 Express Link', status: 'WARNING' as const, severity: 'WARNING' as const, category: 'CONFLICT_RESOLUTION', details: 'Overlapping maintenance window with priority Vande Bharat rake path detected.' },
+        { time: '04:15:00Z', user: 'Smt. Ananya Sen', role: 'RAILWAY_PLANNER' as const, action: 'Dynamic Slot Shift Resolution', object: 'Block BLK-C004-03', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: 'Shifted block forward by 45 minutes; clearance restored.' },
+        { time: '15:20:00Z', user: 'TRD Controller', role: 'ENGINEERING_OFFICER' as const, action: 'Neutral Section Insulator Cleanse', object: 'C002 OHE Section', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'TRACTION_OHE', details: 'Flashover risk mitigated.' }
+      ]
+    },
+    {
+      daysAgo: 9,
+      date: '2026-08-27',
+      events: [
+        { time: '08:00:00Z', user: 'Er. Rajesh Verma', role: 'ENGINEERING_OFFICER' as const, action: 'Curvature Alignment Verification', object: 'C001 KM 18/4 Curve 4R', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'TRACK_INSPECTION', details: 'Versine deviation measured at 2mm (within 4mm tolerance).' },
+        { time: '14:50:00Z', user: 'KAVACH Stationary Telemetry', role: 'SUPER_ADMIN' as const, action: 'Automatic Train Protection Sync', object: 'Station Loop Lines', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'KAVACH_TELEMETRY', details: 'Emergency brake trigger health verified.' }
+      ]
+    },
+    {
+      daysAgo: 10,
+      date: '2026-08-26',
+      events: [
+        { time: '05:30:00Z', user: 'Track Maintenance Gang 02', role: 'ENGINEERING_OFFICER' as const, action: 'Turnout Fitting Tightening', object: 'C003 Points 21 & 22', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'MAINTENANCE_EXECUTION', details: '100% check-rail bolts torqued to IRTMM spec.' },
+        { time: '17:10:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: 'Automated 7-Point Gate Verification', object: 'All Corridors', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'Verified non-conflicting passenger train paths.' }
+      ]
+    },
+    {
+      daysAgo: 11,
+      date: '2026-08-25',
+      events: [
+        { time: '06:45:00Z', user: 'Signal Inspector Joshi', role: 'ST_OFFICER' as const, action: 'LED Signal Aspect Lux Verification', object: 'C001 Home Signal 04', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'SIGNALING', details: 'Light output meets Railway Board visibility requirements.' },
+        { time: '13:30:00Z', user: 'AI Planning Engine', role: 'RAILWAY_PLANNER' as const, action: 'Corridor Capacity Recalibration', object: 'Corridors C001, C003', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: 'Increased throughput by 14% via intelligent slack absorption.' }
+      ]
+    },
+    {
+      daysAgo: 12,
+      date: '2026-08-24',
+      events: [
+        { time: '04:10:00Z', user: 'TRD Section Engineer', role: 'ENGINEERING_OFFICER' as const, action: 'OHE Pantograph Shock Absorber Test', object: 'C002 KM 04/0', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'TRACTION_OHE', details: 'Dynamic uplift within 60mm limit at 130 km/h.' },
+        { time: '16:40:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: 'Interlock Conflict Verification', object: 'C001 & C004', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'All safety interlocks operational.' }
+      ]
+    },
+    {
+      daysAgo: 13,
+      date: '2026-08-23',
+      events: [
+        { time: '07:20:00Z', user: 'Track Inspector Yadav', role: 'ENGINEERING_OFFICER' as const, action: 'Switch Expansion Joint (SEJ) Gap Measurement', object: 'C001 SEJ-02', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'TRACK_INSPECTION', details: 'Gap verified at 58mm at 34°C rail temp.' },
+        { time: '15:15:00Z', user: 'AI Conflict Engine', role: 'SUPER_ADMIN' as const, action: 'Auto-Resolved Headway Gap', object: 'C003 Freight Loop', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'CONFLICT_RESOLUTION', details: '10-minute headway enforced automatically.' }
+      ]
+    },
+    {
+      daysAgo: 14,
+      date: '2026-08-22',
+      events: [
+        { time: '05:00:00Z', user: 'P-Way In-Charge', role: 'ENGINEERING_OFFICER' as const, action: 'Level Crossing Safety Interlocking Check', object: 'LC Gate 44 (C001)', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'SIGNALING', details: 'Boom lock proving contacts verified nominal.' },
+        { time: '14:45:00Z', user: 'Smt. Ananya Sen', role: 'RAILWAY_PLANNER' as const, action: 'Fortnightly Schedule Baseline Audit', object: 'Schedule Publication Gate', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: 'Historical conflict rate reduced by 34%.' }
+      ]
+    },
+    {
+      daysAgo: 15,
+      date: '2026-08-21',
+      events: [
+        // Trough / Anomaly Day: 93.8% Reliability (Major Safety Lock)
+        { time: '02:15:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: 'Emergency Safety Gate Lockdown', object: 'C003 Western Freight Siding', status: 'LOCKED' as const, severity: 'CRITICAL' as const, category: 'SAFETY_GATE', details: 'Safety lock engaged: Unsanctioned siding shunt attempt detected during active block window.' },
+        { time: '02:40:00Z', user: 'Chief Operating Controller', role: 'SUPER_ADMIN' as const, action: 'Emergency Track Protection Dispatched', object: 'C003 Siding Points', status: 'WARNING' as const, severity: 'WARNING' as const, category: 'SAFETY_GATE', details: 'Automatic derailer set to trap position; shunting halted.' },
+        { time: '04:10:00Z', user: 'Safety Directorate Team', role: 'SUPER_ADMIN' as const, action: 'Incident Cleared & Gate Re-validated', object: 'C003 Corridor', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'Physical track inspection verified clear; safety lockout released.' }
+      ]
+    },
+    {
+      daysAgo: 16,
+      date: '2026-08-20',
+      events: [
+        { time: '08:30:00Z', user: 'Signal Inspector Verma', role: 'ST_OFFICER' as const, action: 'Relay Room Dual Key Access Audit', object: 'Relay Room R-02 (C001)', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'SECURITY_AUDIT', details: 'Electro-mechanical key interlocking verified tamper-proof.' },
+        { time: '18:10:00Z', user: 'AI Planning Engine', role: 'RAILWAY_PLANNER' as const, action: 'Routine Schedule Optimization', object: 'Corridors C001-C004', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: 'Optimal allocation of track maintenance slots.' }
+      ]
+    },
+    {
+      daysAgo: 17,
+      date: '2026-08-19',
+      events: [
+        { time: '06:00:00Z', user: 'Track Machine Crew', role: 'ENGINEERING_OFFICER' as const, action: 'Ballast Regulating Machine Run', object: 'BRM-204 (C001)', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'MAINTENANCE_EXECUTION', details: 'Ballast shoulder profile graded to 1:1.5 standard.' },
+        { time: '15:20:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: 'Schedule Validation Cycle', object: 'All Corridors', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'Zero safety anomalies.' }
+      ]
+    },
+    {
+      daysAgo: 18,
+      date: '2026-08-18',
+      events: [
+        { time: '04:45:00Z', user: 'TRD Controller', role: 'ENGINEERING_OFFICER' as const, action: 'Substation Transformer Bushing Audit', object: 'Traction Substation TSS-01', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'TRACTION_OHE', details: 'Infrared thermography scan shows zero hotspots.' },
+        { time: '13:15:00Z', user: 'Signal Inspector Joshi', role: 'ST_OFFICER' as const, action: 'Electronic Interlocking VDU Diagnostics', object: 'EI Cabin North', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'SIGNALING', details: 'Dual processor redundancy switchover tested in 45ms.' }
+      ]
+    },
+    {
+      daysAgo: 19,
+      date: '2026-08-17',
+      events: [
+        { time: '07:10:00Z', user: 'Er. Rajesh Verma', role: 'ENGINEERING_OFFICER' as const, action: 'Welded Rail De-stressing Log', object: 'C002 KM 08/0-12/0', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'TRACK_INSPECTION', details: 'De-stressing executed at reference rail temperature of 38°C.' },
+        { time: '16:30:00Z', user: 'AI Conflict Engine', role: 'SUPER_ADMIN' as const, action: 'Dynamic Headway Buffer Enforcement', object: 'C001 Northern Trunk', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'CONFLICT_RESOLUTION', details: 'Headway guaranteed across 4 consecutive express blocks.' }
+      ]
+    },
+    {
+      daysAgo: 20,
+      date: '2026-08-16',
+      events: [
+        { time: '05:25:00Z', user: 'P-Way In-Charge', role: 'ENGINEERING_OFFICER' as const, action: 'Track Gauge & Twist Telemetry Audit', object: 'C004 Express Link', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'TRACK_INSPECTION', details: 'Gauge variance within +/-2mm limit.' },
+        { time: '19:00:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: 'Pre-Publication Safety Validation', object: 'Schedule Publication Gate', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'Safety clearance approved.' }
+      ]
+    },
+    {
+      daysAgo: 21,
+      date: '2026-08-15',
+      events: [
+        // Independence Day Protocol: 99.4%
+        { time: '06:00:00Z', user: 'Safety Directorate Team', role: 'SUPER_ADMIN' as const, action: 'National Holiday High-Alert Protocol', object: 'Network-Wide Corridors', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SECURITY_AUDIT', details: '24-hour continuous surveillance and automated interlocking freeze enforced.' },
+        { time: '12:00:00Z', user: 'Chief Controller Raman', role: 'RAILWAY_PLANNER' as const, action: 'VIP Special Train Movement Validation', object: 'C001 Northern Trunk', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: 'Clear path guaranteed with 25-minute isolation buffer.' }
+      ]
+    },
+    {
+      daysAgo: 22,
+      date: '2026-08-14',
+      events: [
+        // Warning Day: 96.4%
+        { time: '13:10:00Z', user: 'Signal Telemetry Monitor', role: 'ST_OFFICER' as const, action: 'Axle Counter Thermal Drift Warning', object: 'C003 Axle Counter DAC-14', status: 'WARNING' as const, severity: 'WARNING' as const, category: 'SIGNALING', details: 'Ambient temperature reached 43°C; oscillator circuit drift warning generated.' },
+        { time: '14:05:00Z', user: 'Signal Inspector Joshi', role: 'ST_OFFICER' as const, action: 'Cooling Shroud Installed & Re-calibrated', object: 'DAC-14 (C003)', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SIGNALING', details: 'Signal integrity restored to 100%.' }
+      ]
+    },
+    {
+      daysAgo: 23,
+      date: '2026-08-13',
+      events: [
+        { time: '04:30:00Z', user: 'TRD Power Controller', role: 'ENGINEERING_OFFICER' as const, action: 'OHE Section Isolator Switch Inspection', object: 'C001 Sector 1', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'TRACTION_OHE', details: 'Contact resistance verified below 15 micro-ohms.' },
+        { time: '17:40:00Z', user: 'AI Planning Engine', role: 'SUPER_ADMIN' as const, action: 'Optimization Batch Execution', object: '34 Maintenance Requests', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: 'Total maintenance window allocation: 8.4 hours.' }
+      ]
+    },
+    {
+      daysAgo: 24,
+      date: '2026-08-12',
+      events: [
+        { time: '08:15:00Z', user: 'Track Inspector Yadav', role: 'ENGINEERING_OFFICER' as const, action: 'Bridge Scour & Pier Foundation Audit', object: 'Major River Bridge BR-08', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'TRACK_INSPECTION', details: 'Sonar scour measurement shows no erosion beyond safe limit.' },
+        { time: '15:50:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: 'Seven-Point Gate Inspection', object: 'All Corridors', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'All safety constraints satisfied.' }
+      ]
+    },
+    {
+      daysAgo: 25,
+      date: '2026-08-11',
+      events: [
+        { time: '06:05:00Z', user: 'Signal Team North', role: 'ST_OFFICER' as const, action: 'Automatic Block Signaling Lamp Voltage', object: 'C004 ABS Sector', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'SIGNALING', details: 'Secondary filament circuit auto-switch tested.' },
+        { time: '14:20:00Z', user: 'Smt. Ananya Sen', role: 'RAILWAY_PLANNER' as const, action: 'Heuristic Slack Tuning', object: 'C002 Western Spur', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: 'Peak hour buffer tightened without passenger delay.' }
+      ]
+    },
+    {
+      daysAgo: 26,
+      date: '2026-08-10',
+      events: [
+        { time: '03:50:00Z', user: 'Track Machine Pilot', role: 'ENGINEERING_OFFICER' as const, action: 'Dynamic Track Stabilizer Run', object: 'DGS-62 (C001)', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'MAINTENANCE_EXECUTION', details: 'Consolidation equivalent to 100,000 tonnes of traffic achieved.' },
+        { time: '18:15:00Z', user: 'AI Conflict Engine', role: 'SUPER_ADMIN' as const, action: 'Multi-Asset Overlap Prevention', object: 'C003 Freight Corridor', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'CONFLICT_RESOLUTION', details: 'Prevented concurrent possession by tamper and OHE car.' }
+      ]
+    },
+    {
+      daysAgo: 27,
+      date: '2026-08-09',
+      events: [
+        { time: '07:30:00Z', user: 'P-Way In-Charge', role: 'ENGINEERING_OFFICER' as const, action: 'Creep Indicator Observation', object: 'C001 KM 15/0', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'TRACK_INSPECTION', details: 'Creep within acceptable limit (<20mm).' },
+        { time: '16:00:00Z', user: 'Safety Gate Automation', role: 'SUPER_ADMIN' as const, action: 'Corridor Safety Health Check', object: 'All Corridors', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'Interlocking state verified nominal.' }
+      ]
+    },
+    {
+      daysAgo: 28,
+      date: '2026-08-08',
+      events: [
+        { time: '05:15:00Z', user: 'TRD Section Engineer', role: 'ENGINEERING_OFFICER' as const, action: 'Cantilever Assembly Insulation Inspection', object: 'C004 Express Spur', status: 'SUCCESS' as const, severity: 'NORMAL' as const, category: 'TRACTION_OHE', details: '9-ton insulator resistance > 500 Megohms.' },
+        { time: '13:45:00Z', user: 'AI Planning Engine', role: 'RAILWAY_PLANNER' as const, action: 'Initial Monthly Planning Run', object: 'Schedule Publication Gate', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'OPTIMIZATION', details: '30-day master maintenance forecast scheduled.' }
+      ]
+    },
+    {
+      daysAgo: 29,
+      date: '2026-08-07',
+      events: [
+        { time: '06:00:00Z', user: 'Er. Rajesh Verma', role: 'ENGINEERING_OFFICER' as const, action: 'Ultrasonic Axle Counter Base Calibration', object: 'C001, C002, C003', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SIGNALING', details: 'Master benchmark synchronized across all station loops.' },
+        { time: '11:20:00Z', user: 'Safety Directorate Team', role: 'SUPER_ADMIN' as const, action: '30-Day Safety Protocol Kickoff', object: 'Network-Wide Safety Gate', status: 'SUCCESS' as const, severity: 'SUCCESS' as const, category: 'SAFETY_GATE', details: 'Audit baseline established under Indian Railways G&SR and IRTMM protocols.' }
+      ]
+    }
+  ];
+
+  const historicalLogs: AuditLog[] = [];
+  historicalDaysSpec.forEach((daySpec, dIdx) => {
+    daySpec.events.forEach((ev, eIdx) => {
+      historicalLogs.push({
+        id: `AUD-H-${(dIdx + 1).toString().padStart(2, '0')}-${(eIdx + 1).toString().padStart(2, '0')}`,
+        timestamp: `${daySpec.date}T${ev.time}`,
+        user: ev.user,
+        role: ev.role,
+        action: ev.action,
+        object: ev.object,
+        status: ev.status,
+        severity: ev.severity,
+        category: ev.category,
+        details: ev.details,
+      });
+    });
+  });
+
+  return [...currentLogs, ...historicalLogs];
+};
+
+export const INITIAL_AUDIT_LOGS: AuditLog[] = generateHistoricalAuditLogs();
 
 // ============================================================================
 // RAILWAY RESOURCE ALLOCATION FLEET: MACHINERY & MANPOWER
