@@ -24,6 +24,7 @@ import {
   ShieldAlert,
   BarChart3,
   CheckCircle,
+  Download,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -68,6 +69,79 @@ export const SystemAuditScreen: React.FC<SystemAuditScreenProps> = ({
   const [tableSearch, setTableSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [severityFilter, setSeverityFilter] = useState('ALL');
+
+  // CSV Report Export State
+  const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [exportedCount, setExportedCount] = useState(0);
+
+  // Regulatory CSV Report Export Handler
+  const handleDownloadReport = (exportAll = false) => {
+    const targetLogs = exportAll ? auditLogs : (filteredLogs.length > 0 ? filteredLogs : auditLogs);
+    if (!targetLogs || targetLogs.length === 0) return;
+
+    const escapeCsv = (val: string | number | undefined | null) => {
+      if (val === undefined || val === null) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    // Official Indian Railways Safety Directorate Audit Header Specification
+    const headers = [
+      'Audit Log ID',
+      'Timestamp (ISO)',
+      'Date (IST)',
+      'Time (IST)',
+      'Subsystem Category',
+      'Severity Level',
+      'Outcome Status',
+      'Authorized Officer / Subsystem',
+      'Officer Role',
+      'Action Description',
+      'Target Asset / Entity',
+      'Regulatory Inspection Notes',
+    ];
+
+    const rows = targetLogs.map((log) => {
+      const datePart = log.timestamp ? log.timestamp.slice(0, 10) : '';
+      const timePart = log.timestamp ? log.timestamp.slice(11, 19) : '';
+      return [
+        escapeCsv(log.id),
+        escapeCsv(log.timestamp),
+        escapeCsv(datePart),
+        escapeCsv(timePart),
+        escapeCsv(log.category || 'SYSTEM_CORE'),
+        escapeCsv(log.severity || log.status || 'NORMAL'),
+        escapeCsv(log.status || 'SUCCESS'),
+        escapeCsv(log.user),
+        escapeCsv(log.role || 'RAILWAY_SYSTEM_OPERATOR'),
+        escapeCsv(log.action),
+        escapeCsv(log.object || 'CORE_REGISTRY'),
+        escapeCsv(log.details || ''),
+      ].join(',');
+    });
+
+    // Add BOM (\uFEFF) for seamless Microsoft Excel & UTF-8 character encoding support
+    const csvContent = '\uFEFF' + [headers.map((h) => `"${h}"`).join(','), ...rows].join('\r\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    const dateStamp = new Date().toISOString().split('T')[0];
+    const filterSuffix = !exportAll && selectedDate ? `_${selectedDate}` : '';
+    const filename = `IndianRailways_SystemAudit_RegulatoryReport_${dateStamp}${filterSuffix}.csv`;
+
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    setExportedCount(targetLogs.length);
+    setDownloadSuccess(true);
+    setTimeout(() => setDownloadSuccess(false), 4000);
+  };
 
   const handleTestHealth = async () => {
     setTestingHealth(true);
@@ -386,7 +460,26 @@ export const SystemAuditScreen: React.FC<SystemAuditScreenProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              id="btn-download-audit-report"
+              onClick={() => handleDownloadReport(false)}
+              className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95"
+              title="Export current audit log data into CSV format for regulatory reporting"
+            >
+              {downloadSuccess ? (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>Report Downloaded ({exportedCount})</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Report</span>
+                </>
+              )}
+            </button>
+
             <button
               onClick={onOpenBackendSettings}
               className="px-3.5 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors"
@@ -397,6 +490,24 @@ export const SystemAuditScreen: React.FC<SystemAuditScreenProps> = ({
           </div>
         </div>
       </div>
+
+      {/* CSV Export Success Banner */}
+      {downloadSuccess && (
+        <div className="bg-emerald-950/90 border border-emerald-600/70 p-3.5 rounded-xl flex items-center justify-between text-xs font-mono text-emerald-200 shadow-lg transition-all animate-fadeIn">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>
+              <strong>Regulatory CSV Export Complete:</strong> Successfully exported <strong>{exportedCount}</strong> audit log records in RFC 4180 CSV format for Indian Railways safety directorate regulatory reporting.
+            </span>
+          </div>
+          <button
+            onClick={() => setDownloadSuccess(false)}
+            className="text-emerald-400 hover:text-white p-1 cursor-pointer transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* SYSTEM SUBSYSTEMS STATUS */}
       <div className="bg-[#0e172e] p-5 rounded-xl border border-sky-950/80 shadow-md">
@@ -798,6 +909,15 @@ export const SystemAuditScreen: React.FC<SystemAuditScreenProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  onClick={() => handleDownloadReport(false)}
+                  className="px-2.5 py-1 rounded bg-emerald-800 hover:bg-emerald-700 text-emerald-100 text-xs flex items-center gap-1 transition-colors cursor-pointer border border-emerald-700"
+                  title="Export this day's audit logs to CSV format"
+                >
+                  <Download className="w-3 h-3" />
+                  <span>Export Day CSV ({selectedDayInfo.logs.length})</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setSelectedDate(null)}
                   className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors cursor-pointer"
                 >
@@ -1004,6 +1124,27 @@ export const SystemAuditScreen: React.FC<SystemAuditScreenProps> = ({
               Reset all filters
             </button>
           )}
+
+          {/* Download Report Actions in Audit Toolbar */}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => handleDownloadReport(false)}
+              title="Download current audit log data into CSV format for regulatory reporting"
+              className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-mono flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer border border-emerald-600"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download Report ({filteredLogs.length} CSV)</span>
+            </button>
+            {filteredLogs.length !== auditLogs.length && (
+              <button
+                onClick={() => handleDownloadReport(true)}
+                title="Download entire 30-day audit log dataset (all records)"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono flex items-center gap-1 transition-colors cursor-pointer border border-slate-700"
+              >
+                <span>Export All ({auditLogs.length})</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Audit Log Table */}
