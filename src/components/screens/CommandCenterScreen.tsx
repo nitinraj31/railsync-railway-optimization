@@ -734,6 +734,21 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
             </span>
           </button>
           <button
+            id="jump-to-predictive-gap-btn"
+            onClick={() => {
+              const el = document.getElementById('network-health-summary-section');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-purple-950 via-slate-900 to-indigo-950 hover:border-purple-400/80 border border-purple-500/50 text-purple-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-purple-950/60 transition-all font-mono group cursor-pointer"
+            title="Jump to Predictive Gap Tool (Drag-and-Drop Simulation onto D3 Trend-Line)"
+          >
+            <Zap className="w-4 h-4 text-purple-400 group-hover:animate-pulse" />
+            <span>Predictive Gap Tool</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-purple-500/20 text-purple-200 border border-purple-400/40 uppercase font-bold">
+              Simulate
+            </span>
+          </button>
+          <button
             id="jump-to-resilience-btn"
             onClick={() => {
               const el = document.getElementById('network-resilience-card');
