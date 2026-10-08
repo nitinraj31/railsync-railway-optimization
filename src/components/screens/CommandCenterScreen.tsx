@@ -68,6 +68,7 @@ import { predictiveRiskNotificationService } from '../../services/predictiveRisk
 import { SustainabilityDashboard } from '../sustainability/SustainabilityDashboard';
 import { CorridorDigitalTwin } from '../digitaltwin/CorridorDigitalTwin';
 import { NetworkResilienceCard } from '../resilience/NetworkResilienceCard';
+import { NetworkHealthSummarySection } from '../corridor/NetworkHealthSummarySection';
 import { FleetHealthHeatmap } from '../fleet/FleetHealthHeatmap';
 import { ElectricalGridHealth } from '../electrical/ElectricalGridHealth';
 import { DepartmentOperationsHub } from '../departments/DepartmentOperationsHub';
@@ -718,6 +719,21 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
             </span>
           </button>
           <button
+            id="jump-to-network-health-btn"
+            onClick={() => {
+              const el = document.getElementById('network-health-summary-section');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-sky-950 via-slate-900 to-cyan-950 hover:border-cyan-400/80 border border-cyan-500/50 text-cyan-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-950/60 transition-all font-mono group cursor-pointer"
+            title="Jump to Real-Time Network Health Summary (D3.js Corridor Utilization vs Maintenance Block Volume)"
+          >
+            <Activity className="w-4 h-4 text-cyan-400 group-hover:animate-pulse" />
+            <span>Network Health</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 uppercase font-bold">
+              D3 Live
+            </span>
+          </button>
+          <button
             id="jump-to-resilience-btn"
             onClick={() => {
               const el = document.getElementById('network-resilience-card');
@@ -1019,6 +1035,15 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
       <NetworkResilienceCard
         corridors={corridors}
         blocks={blocks}
+        onNavigate={onNavigate}
+        onRefreshData={onRefreshData}
+      />
+
+      {/* NETWORK HEALTH SUMMARY SECTION (D3.JS CORRIDOR UTILIZATION VS MAINTENANCE BLOCK VOLUME) */}
+      <NetworkHealthSummarySection
+        corridors={corridors}
+        blocks={blocks}
+        requests={requests}
         onNavigate={onNavigate}
         onRefreshData={onRefreshData}
       />
