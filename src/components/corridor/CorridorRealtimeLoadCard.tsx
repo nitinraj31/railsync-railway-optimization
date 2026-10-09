@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Activity,
   Gauge,
@@ -21,9 +21,13 @@ import {
   Cpu,
   ChevronRight,
   Filter,
+  Sparkles,
+  Sliders,
+  X,
+  ShieldCheck,
 } from 'lucide-react';
-import { Corridor, OptimizedBlock, MaintenanceTask } from '../../types';
-import { mockStore } from '../../services/api';
+import { Corridor, OptimizedBlock, CorridorAutoBalanceResult } from '../../types';
+import { mockStore, autoBalanceCorridor } from '../../services/api';
 
 interface CorridorRealtimeLoadCardProps {
   corridors: Corridor[];
@@ -86,6 +90,13 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
   // Active hover tooltip corridor ID
   const [activeTooltipCorridorId, setActiveTooltipCorridorId] = useState<string | null>(null);
 
+  // Targeted AI Auto-Balance State
+  const [balancingCorridorId, setBalancingCorridorId] = useState<string | null>(null);
+  const [balanceOutcomeResult, setBalanceOutcomeResult] = useState<CorridorAutoBalanceResult | null>(null);
+  const [recentlyBalancedCorridors, setRecentlyBalancedCorridors] = useState<
+    Record<string, { relief: number; timestamp: number }>
+  >({});
+
   // Filter & sorting options
   const [sortBy, setSortBy] = useState<'utilization' | 'load' | 'tasks' | 'code'>('load');
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'CRITICAL' | 'OPERATIONAL'>('ALL');
@@ -140,6 +151,39 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
 
     if (onRefreshData) {
       onRefreshData();
+    }
+  };
+
+  // Trigger targeted AI Auto-Balance for a specific corridor
+  const handleAutoBalance = async (corridorId: string) => {
+    setBalancingCorridorId(corridorId);
+    try {
+      const result = await autoBalanceCorridor(corridorId);
+
+      // Update load history so trend arrow immediately indicates downward relief
+      loadHistoryRef.current.set(corridorId, {
+        previous: result.preLoadPct,
+        current: result.postLoadPct,
+      });
+
+      setRecentlyBalancedCorridors((prev) => ({
+        ...prev,
+        [corridorId]: {
+          relief: result.loadReliefPct,
+          timestamp: Date.now(),
+        },
+      }));
+
+      setBalanceOutcomeResult(result);
+      setRefreshTick((prev) => prev + 1);
+
+      if (onRefreshData) {
+        onRefreshData();
+      }
+    } catch (err) {
+      console.error('Error auto-balancing corridor:', err);
+    } finally {
+      setBalancingCorridorId(null);
     }
   };
 
@@ -370,7 +414,7 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              Real-time traffic occupancy vs scheduled maintenance load per corridor. Hover on active task counts to inspect cross-departmental breakdown (Engineering, S&T, Traction).
+              Real-time traffic occupancy vs scheduled maintenance load per corridor. Hover on active task counts to inspect cross-departmental breakdown (Engineering, S&T, Traction), or trigger targeted AI Auto-Balance.
             </p>
           </div>
         </div>
@@ -462,8 +506,11 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
         </div>
         <div className="flex items-center justify-end gap-2 text-right">
           <div className="text-[11px] text-slate-400">
-            <span className="text-emerald-400 font-bold">↑ / ↓ Trend Arrows</span>
-            <div className="text-[10px] text-slate-500">Reflect shift since last refresh</div>
+            <span className="text-purple-400 font-bold flex items-center gap-1 justify-end">
+              <Sparkles className="w-3.5 h-3.5" />
+              Targeted AI Auto-Balance
+            </span>
+            <div className="text-[10px] text-slate-500">Smooths corridor maintenance curve</div>
           </div>
         </div>
       </div>
@@ -472,6 +519,9 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
         {filteredAndSortedList.map((corridor) => {
           const isTooltipOpen = activeTooltipCorridorId === corridor.id;
+          const isBalancing = balancingCorridorId === corridor.id;
+          const balancedData = recentlyBalancedCorridors[corridor.id];
+          const isRecentlyBalanced = Boolean(balancedData && Date.now() - balancedData.timestamp < 120000);
 
           // Utilization colors
           const utilBadgeColor =
@@ -501,7 +551,11 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
           return (
             <div
               key={corridor.id}
-              className="bg-[#0e1833] rounded-xl border border-sky-950 hover:border-sky-700/70 p-4 transition-all duration-200 hover:shadow-lg hover:shadow-sky-950/50 flex flex-col justify-between group relative"
+              className={`bg-[#0e1833] rounded-xl border p-4 transition-all duration-200 hover:shadow-lg hover:shadow-sky-950/50 flex flex-col justify-between group relative ${
+                isRecentlyBalanced
+                  ? 'border-emerald-600/80 shadow-md shadow-emerald-950/40'
+                  : 'border-sky-950 hover:border-sky-700/70'
+              }`}
             >
               {/* TOP HEADER: CODE & STATUS BADGE */}
               <div>
@@ -510,21 +564,23 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
                     <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-sky-950 text-sky-300 border border-sky-800">
                       {corridor.code}
                     </span>
-                    <span className="text-xs font-bold text-slate-200 truncate max-w-[150px]" title={corridor.name}>
+                    <span className="text-xs font-bold text-slate-200 truncate max-w-[130px]" title={corridor.name}>
                       {corridor.id}
                     </span>
                   </div>
 
-                  {/* Status Indicator */}
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase border ${
-                      corridor.status === 'RESTRICTED'
-                        ? 'bg-amber-950/80 text-amber-300 border-amber-700/60'
-                        : 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
-                    }`}
-                  >
-                    {corridor.status}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    {/* Status Indicator */}
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase border ${
+                        corridor.status === 'RESTRICTED'
+                          ? 'bg-amber-950/80 text-amber-300 border-amber-700/60'
+                          : 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                      }`}
+                    >
+                      {corridor.status}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Corridor Station Name & Specs */}
@@ -533,7 +589,7 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
                 </div>
                 <div className="text-[10px] text-slate-400 font-mono mb-3.5 flex items-center justify-between">
                   <span>{corridor.fromStation} → {corridor.toStation}</span>
-                  <span className="text-slate-500">{corridor.lengthKm} km · {corridor.tracksCount} Tracks</span>
+                  <span className="text-slate-500">{corridor.lengthKm} km · {corridor.tracksCount}T</span>
                 </div>
 
                 {/* 1. REAL-TIME TRACK UTILIZATION SECTION */}
@@ -585,7 +641,7 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
                         className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border flex items-center gap-0.5 ${trendBadgeClass} transition-colors`}
                         title={`Maintenance load ${
                           isLoadIncreased ? 'increased' : isLoadDecreased ? 'decreased' : 'unchanged'
-                        } by ${Math.abs(corridor.loadDelta)}% since last refresh (${lastRefreshTime.toLocaleTimeString()})`}
+                        } by ${Math.abs(corridor.loadDelta)}% since last refresh`}
                       >
                         {isLoadIncreased && <TrendingUp className="w-3 h-3 text-rose-400 shrink-0" />}
                         {isLoadDecreased && <TrendingDown className="w-3 h-3 text-emerald-400 shrink-0" />}
@@ -728,10 +784,46 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
                     </div>
                   </div>
                 </div>
+
+                {/* 4. TARGETED AI AUTO-BALANCE BUTTON */}
+                <div className="mt-3 pt-2.5 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => handleAutoBalance(corridor.id)}
+                    disabled={isBalancing}
+                    className={`w-full py-2 px-3 rounded-lg border font-mono text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md group ${
+                      isRecentlyBalanced
+                        ? 'bg-emerald-950/80 border-emerald-500/70 text-emerald-200 hover:bg-emerald-900 shadow-emerald-950/40'
+                        : 'bg-gradient-to-r from-purple-950 via-slate-900 to-indigo-950 border-purple-500/60 hover:border-purple-400 text-purple-200 hover:text-white shadow-purple-950/40 hover:from-purple-900 hover:to-indigo-900'
+                    }`}
+                    title={`Trigger targeted AI optimization for ${corridor.code}: re-balance active block requests and maintenance tasks to smooth out the load curve`}
+                  >
+                    {isBalancing ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 text-purple-300 animate-spin" />
+                        <span className="tracking-wide">AI AUTO-BALANCING...</span>
+                      </>
+                    ) : isRecentlyBalanced ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>LOAD BALANCED (-{balancedData?.relief}%)</span>
+                        <Sparkles className="w-3 h-3 text-emerald-400 group-hover:rotate-12 transition-transform" />
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
+                        <span className="tracking-wide">AUTO-BALANCE</span>
+                        <span className="px-1 py-0.2 rounded text-[9px] bg-purple-500/20 text-purple-300 border border-purple-400/30 uppercase font-semibold">
+                          AI
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* CARD FOOTER: DIRECT INSPECT BUTTON */}
-              <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono">
+              <div className="mt-3.5 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono">
                 <button
                   onClick={() => onNavigate('timeline', { corridorId: corridor.id })}
                   className="text-[11px] text-sky-400 hover:text-sky-300 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
@@ -752,6 +844,196 @@ export const CorridorRealtimeLoadCard: React.FC<CorridorRealtimeLoadCardProps> =
           );
         })}
       </div>
+
+      {/* TARGETED AI AUTO-BALANCE OUTCOME MODAL */}
+      {balanceOutcomeResult && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-[#091325] border border-purple-500/70 rounded-2xl max-w-2xl w-full shadow-2xl p-6 space-y-5 font-mono text-xs my-8 border-t-4 border-t-purple-500 relative">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-purple-950/80 border border-purple-500/50 text-purple-300 shadow-lg">
+                  <Sparkles className="w-6 h-6 text-purple-400 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white tracking-wide">
+                      Targeted AI Corridor Auto-Balance Complete
+                    </h3>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-700">
+                      {balanceOutcomeResult.corridorCode}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-sans mt-0.5">
+                    {balanceOutcomeResult.corridorName} — Active blocks and maintenance tasks re-balanced to smooth the corridor load curve.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setBalanceOutcomeResult(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* KPI STAT TILES */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 space-y-1">
+                <div className="text-[10px] text-slate-400 uppercase">Maintenance Load</div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-sm line-through text-slate-500">{balanceOutcomeResult.preLoadPct}%</span>
+                  <span className="text-base font-bold text-emerald-400">{balanceOutcomeResult.postLoadPct}%</span>
+                </div>
+                <div className="text-[10px] text-emerald-400 font-bold">
+                  ↓ -{balanceOutcomeResult.loadReliefPct}% Smoothed
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 space-y-1">
+                <div className="text-[10px] text-slate-400 uppercase">Peak Strain Index</div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-sm line-through text-slate-500">{balanceOutcomeResult.prePeakStrain}</span>
+                  <span className="text-base font-bold text-sky-400">{balanceOutcomeResult.postPeakStrain}</span>
+                </div>
+                <div className="text-[10px] text-sky-400 font-bold">
+                  ↓ -{balanceOutcomeResult.strainReliefPts} pts Relief
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 space-y-1">
+                <div className="text-[10px] text-slate-400 uppercase">Operations Re-Balanced</div>
+                <div className="text-base font-bold text-purple-300">
+                  {balanceOutcomeResult.rebalancedBlocksCount} Blocks Shifted
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  +{balanceOutcomeResult.incorporatedRequestsCount} Requests Integrated
+                </div>
+              </div>
+            </div>
+
+            {/* 24-HOUR LOAD CURVE SMOOTHING VISUALIZATION */}
+            <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between text-[11px] font-bold">
+                <span className="text-slate-200 flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Diurnal Load Curve: Pre-AI Clustered vs Post-AI Smoothed</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  6 Diurnal Windows
+                </span>
+              </div>
+
+              <div className="space-y-2 pt-1">
+                {balanceOutcomeResult.hourlyLoadCurve.map((point) => {
+                  const varianceDrop = point.preLoadPct - point.postLoadPct;
+                  return (
+                    <div key={point.hourLabel} className="space-y-1 text-[10px]">
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span className="font-semibold text-slate-300">{point.hourLabel}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Pre: {point.preLoadPct}%</span>
+                          <span className="text-emerald-400 font-bold">Post: {point.postLoadPct}%</span>
+                          <span className={`px-1 py-0.2 rounded font-bold ${
+                            varianceDrop > 0 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-slate-800 text-slate-400'
+                          }`}>
+                            {varianceDrop > 0 ? `-${varianceDrop}%` : `+${Math.abs(varianceDrop)}%`}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Dual comparison bar */}
+                      <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden flex border border-slate-800">
+                        <div
+                          className="h-full bg-rose-500/40"
+                          style={{ width: `${point.preLoadPct / 2}%` }}
+                          title={`Pre-load: ${point.preLoadPct}%`}
+                        />
+                        <div
+                          className="h-full bg-emerald-500"
+                          style={{ width: `${point.postLoadPct / 2}%` }}
+                          title={`Post-load: ${point.postLoadPct}%`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* RE-BALANCED SHIFTS TABLE */}
+            {balanceOutcomeResult.shifts.length > 0 && (
+              <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-200">
+                  <span>Re-Scheduled Maintenance Blocks & Shifts</span>
+                  <span className="text-[10px] text-purple-400">
+                    {balanceOutcomeResult.shifts.length} Tasks De-Clustered
+                  </span>
+                </div>
+
+                <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+                  {balanceOutcomeResult.shifts.map((shift, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2 rounded-lg bg-slate-950/90 border border-slate-800/80 flex items-start justify-between gap-3 text-[10px]"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white">{shift.blockId}</span>
+                          <span className="px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800 text-[9px] font-bold">
+                            {shift.department}
+                          </span>
+                          <span className="text-slate-400 truncate max-w-[180px]">{shift.assetName}</span>
+                        </div>
+                        <div className="text-[9px] text-slate-400 font-sans">
+                          {shift.reason}
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-slate-500 line-through text-[9px]">{shift.oldTimeWindow}</div>
+                        <div className="text-emerald-400 font-bold text-[10px]">{shift.newTimeWindow}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* AI EXPLAINABILITY & RATIONALE */}
+            <div className="bg-purple-950/30 border border-purple-800/50 p-3 rounded-xl space-y-1">
+              <div className="flex items-center gap-1.5 text-purple-300 font-bold text-[11px]">
+                <ShieldCheck className="w-4 h-4 text-purple-400" />
+                <span>AI Constraint Satisfaction & Safety Guarantee</span>
+              </div>
+              <p className="text-[10px] text-slate-300 font-sans leading-relaxed">
+                {balanceOutcomeResult.aiRationale}
+              </p>
+            </div>
+
+            {/* MODAL FOOTER */}
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+              <button
+                onClick={() => {
+                  onNavigate('timeline', { corridorId: balanceOutcomeResult.corridorId });
+                  setBalanceOutcomeResult(null);
+                }}
+                className="px-3 py-2 rounded-lg bg-sky-950 hover:bg-sky-900 border border-sky-600/60 text-sky-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <span>Inspect in Timeline</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                onClick={() => setBalanceOutcomeResult(null)}
+                className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs cursor-pointer shadow-md shadow-purple-950/60 transition-colors"
+              >
+                Apply & Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

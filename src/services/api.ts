@@ -28,6 +28,9 @@ import {
   AiCorridorAvailabilitySummary,
   DailyForecastOverride,
   ConflictRecalculationResult,
+  CorridorAutoBalanceResult,
+  CorridorAutoBalanceShift,
+  CorridorHourlyLoadPoint,
 } from '../types';
 import {
   INITIAL_ASSETS,
@@ -1255,6 +1258,229 @@ class RailSyncStore {
     return { blocks: this.optimizedBlocks, newBlocksCount: addedCount };
   }
 
+  public autoBalanceCorridor(corridorId: string): CorridorAutoBalanceResult {
+    const targetCorridor = this.corridors.find((c) => c.id === corridorId) || this.corridors[0];
+    const cid = targetCorridor.id;
+
+    // 1. Fetch blocks, requests, defects, tasks for this corridor
+    const corridorBlocks = this.optimizedBlocks.filter((b) => b.corridorId === cid);
+    const pendingReqs = this.blockRequests.filter(
+      (r) => r.corridorId === cid && (r.status === 'PENDING' || r.status === 'UNDER_REVIEW')
+    );
+    const corridorConflicts = this.conflicts.filter(
+      (c) => c.corridorId === cid && c.status === 'OPEN'
+    );
+
+    // Baseline metrics before optimization
+    const preScheduledCount = targetCorridor.scheduledBlocks || corridorBlocks.length || 10;
+    const preAvailSlots = targetCorridor.availableSlots || 4;
+    const preLoadPct = Math.min(96, Math.max(72, Math.round((preScheduledCount / (preScheduledCount + preAvailSlots)) * 100)));
+    const prePeakStrain = cid === 'C003' ? 94 : cid === 'C001' ? 88 : cid === 'C004' ? 91 : 79;
+
+    // Optimal non-peak shadow slots across diurnal periods
+    const optimalWindows = [
+      { start: '01:00', end: '03:30', desc: 'Night Mega Window (01:00–03:30)' },
+      { start: '02:15', end: '04:45', desc: 'Night Low-Traffic Window (02:15–04:45)' },
+      { start: '09:45', end: '11:15', desc: 'Morning Post-Peak Lull (09:45–11:15)' },
+      { start: '13:15', end: '15:15', desc: 'Midday Freight Shadow (13:15–15:15)' },
+      { start: '15:30', end: '17:00', desc: 'Afternoon Secondary Window (15:30–17:00)' },
+      { start: '22:30', end: '00:30', desc: 'Late Evening Shift Window (22:30–00:30)' },
+    ];
+
+    const shifts: CorridorAutoBalanceShift[] = [];
+    let rebalancedCount = 0;
+    let resolvedConflictsCount = 0;
+    let incorporatedReqCount = 0;
+
+    // 2. Resolve any conflicts on this corridor by moving them to conflict-free windows
+    corridorConflicts.forEach((conf, idx) => {
+      const block = this.optimizedBlocks.find((b) => b.blockId === conf.blockId);
+      const slot = optimalWindows[idx % optimalWindows.length];
+      if (block) {
+        const oldTime = `${block.startTime}–${block.endTime}`;
+        block.startTime = slot.start;
+        block.endTime = slot.end;
+        block.hasConflict = false;
+        block.status = 'SCHEDULED';
+        block.validationStatus = 'VALID';
+        block.conflictId = undefined;
+
+        shifts.push({
+          blockId: block.blockId,
+          taskId: block.taskId,
+          department: block.department,
+          assetId: block.assetId,
+          assetName: this.assets.find((a) => a.id === block.assetId)?.name || `Asset ${block.assetId}`,
+          oldTimeWindow: oldTime,
+          newTimeWindow: `${slot.start}–${slot.end}`,
+          durationMinutes: block.durationMinutes,
+          reason: `Resolved conflict with train path by shifting to ${slot.desc}`,
+          varianceRelief: '-18 mins headway overlap cleared',
+        });
+        rebalancedCount++;
+      }
+      conf.status = 'RESOLVED';
+      conf.resolvedAt = new Date().toISOString();
+      resolvedConflictsCount++;
+    });
+
+    // 3. Smooth clustered blocks on this corridor
+    // Identify blocks that overlap in time (e.g. morning/afternoon cluster) and distribute them evenly
+    corridorBlocks.forEach((b, idx) => {
+      if (shifts.some((s) => s.blockId === b.blockId)) return;
+      // Re-balance every 2nd or 3rd block to evenly space them out
+      if (idx % 2 === 1 && idx < 5) {
+        const slot = optimalWindows[(idx + 2) % optimalWindows.length];
+        const oldTime = `${b.startTime}–${b.endTime}`;
+        if (oldTime !== `${slot.start}–${slot.end}`) {
+          b.startTime = slot.start;
+          b.endTime = slot.end;
+          b.status = 'SCHEDULED';
+          b.validationStatus = 'VALID';
+
+          shifts.push({
+            blockId: b.blockId,
+            taskId: b.taskId,
+            department: b.department,
+            assetId: b.assetId,
+            assetName: this.assets.find((a) => a.id === b.assetId)?.name || `Asset ${b.assetId}`,
+            oldTimeWindow: oldTime,
+            newTimeWindow: `${slot.start}–${slot.end}`,
+            durationMinutes: b.durationMinutes,
+            reason: `De-clustered from peak hours and smoothed into ${slot.desc}`,
+            varianceRelief: 'Eliminated concurrent track isolation choke',
+          });
+          rebalancedCount++;
+        }
+      }
+    });
+
+    // 4. Incorporate pending requests for this corridor into scheduled slots
+    pendingReqs.forEach((r, idx) => {
+      r.status = 'PLANNED';
+      let nextNum = this.optimizedBlocks.length + 1 + idx;
+      let blockId = `BLK-${r.department.charAt(0)}${nextNum.toString().padStart(3, '0')}`;
+      while (this.optimizedBlocks.some((b) => b.blockId === blockId)) {
+        nextNum++;
+        blockId = `BLK-${r.department.charAt(0)}${nextNum.toString().padStart(3, '0')}`;
+      }
+      let taskId = `TSK-M${nextNum.toString().padStart(3, '0')}`;
+      while (this.optimizedBlocks.some((b) => b.taskId === taskId)) {
+        nextNum++;
+        taskId = `TSK-M${nextNum.toString().padStart(3, '0')}`;
+      }
+      const targetSlot = optimalWindows[(idx + 3) % optimalWindows.length];
+      const newBlock: OptimizedBlock = {
+        blockId,
+        taskId,
+        requestId: r.requestId,
+        department: r.department,
+        assetId: r.assetId,
+        corridorId: cid,
+        section: `KM ${(idx * 5) + 12}/0 to ${(idx * 5) + 16}/0`,
+        date: r.requestedDate,
+        startTime: targetSlot.start,
+        endTime: targetSlot.end,
+        durationMinutes: r.requiredDurationMinutes,
+        priority: r.priority,
+        status: 'SCHEDULED',
+        validationStatus: 'VALID',
+        hasConflict: false,
+        explainability: {
+          whyThisSlot: [
+            `Targeted AI Auto-Balance incorporated request ${r.requestId}`,
+            `Assigned non-intrusive slot ${targetSlot.desc}`,
+            `Zero headway conflict with scheduled express rakes`,
+          ],
+          optimizationFactors: {
+            priorityScore: 92,
+            assetAvailability: 'Certified',
+            corridorAvailability: 'Optimal capacity slot',
+            trainCompatibility: 'Compatible',
+            constraintCompatibility: 'Standard safety margin satisfied',
+            operationalImpact: 'Zero passenger impact',
+          },
+          alternateEvaluatedCount: 3,
+          disruptionAvoidanceMinutes: 45,
+          constraintCheckSummary: 'Corridor load balanced',
+        },
+      };
+      this.optimizedBlocks.push(newBlock);
+      incorporatedReqCount++;
+
+      shifts.push({
+        blockId: newBlock.blockId,
+        requestId: r.requestId,
+        taskId: newBlock.taskId,
+        department: r.department,
+        assetId: r.assetId,
+        assetName: this.assets.find((a) => a.id === r.assetId)?.name || `Asset ${r.assetId}`,
+        oldTimeWindow: 'PENDING_QUEUE',
+        newTimeWindow: `${targetSlot.start}–${targetSlot.end}`,
+        durationMinutes: r.requiredDurationMinutes,
+        reason: `Integrated pending request into smoothed ${targetSlot.desc}`,
+        varianceRelief: 'Incorporated without inflating peak load spike',
+      });
+    });
+
+    // 5. Update Corridor status and metrics
+    const postLoadPct = Math.max(68, Math.round(preLoadPct - (rebalancedCount * 2.2 + resolvedConflictsCount * 3.5 + 4.5)));
+    const loadReliefPct = +(preLoadPct - postLoadPct).toFixed(1);
+    const postPeakStrain = Math.max(65, prePeakStrain - 16);
+    const strainReliefPts = prePeakStrain - postPeakStrain;
+
+    targetCorridor.utilization = Math.max(72, targetCorridor.utilization - 3);
+    targetCorridor.activeConflicts = 0;
+    targetCorridor.status = 'OPERATIONAL';
+    targetCorridor.availableSlots = Math.min(12, (targetCorridor.availableSlots || 4) + 2);
+
+    // Persist all state
+    this.persist(STORAGE_KEYS.BLOCK_REQUESTS, this.blockRequests);
+    this.persist(STORAGE_KEYS.OPTIMIZED_BLOCKS, this.optimizedBlocks);
+    this.persist(STORAGE_KEYS.CONFLICTS, this.conflicts);
+    this.persist(STORAGE_KEYS.CORRIDORS, this.corridors);
+
+    // 6. Build hourly load curve (24-hour comparative before vs after load distribution)
+    const hourlyLoadCurve: CorridorHourlyLoadPoint[] = [
+      { hourLabel: '00:00 - 04:00', preLoadPct: 92, postLoadPct: 82, isPeakSpike: true, trafficDensityPct: 35 },
+      { hourLabel: '04:00 - 08:00', preLoadPct: 58, postLoadPct: 62, isPeakSpike: false, trafficDensityPct: 85 },
+      { hourLabel: '08:00 - 12:00', preLoadPct: 88, postLoadPct: 70, isPeakSpike: true, trafficDensityPct: 94 },
+      { hourLabel: '12:00 - 16:00', preLoadPct: 84, postLoadPct: 74, isPeakSpike: false, trafficDensityPct: 72 },
+      { hourLabel: '16:00 - 20:00', preLoadPct: 76, postLoadPct: 68, isPeakSpike: false, trafficDensityPct: 96 },
+      { hourLabel: '20:00 - 24:00', preLoadPct: 82, postLoadPct: 73, isPeakSpike: false, trafficDensityPct: 78 },
+    ];
+
+    // 7. Audit log entry
+    this.addAuditLogEntry(
+      this.currentUser?.name || 'Railway Planner',
+      'RAILWAY_PLANNER',
+      `Targeted Corridor Auto-Balance: ${targetCorridor.code || cid}`,
+      `Corridor ${targetCorridor.code || cid} (${targetCorridor.name})`,
+      'SUCCESS',
+      `AI engine smoothed load curve: peak strain ${prePeakStrain} → ${postPeakStrain} (-${strainReliefPts} pts), load shifted ${preLoadPct}% → ${postLoadPct}% (-${loadReliefPct}%). Rebalanced ${rebalancedCount} blocks, incorporated ${incorporatedReqCount} requests, resolved ${resolvedConflictsCount} conflicts.`
+    );
+
+    return {
+      success: true,
+      corridorId: cid,
+      corridorCode: targetCorridor.code || cid,
+      corridorName: targetCorridor.name,
+      preLoadPct,
+      postLoadPct,
+      loadReliefPct,
+      prePeakStrain,
+      postPeakStrain,
+      strainReliefPts,
+      rebalancedBlocksCount: rebalancedCount,
+      incorporatedRequestsCount: incorporatedReqCount,
+      resolvedConflictsCount: resolvedConflictsCount,
+      shifts,
+      hourlyLoadCurve,
+      aiRationale: `AI constraint engine evaluated corridor ${targetCorridor.code || cid} traffic patterns against 24-hour diurnal capacity slots. De-clustered overlapping morning/midday block requests and redirected heavy maintenance tasks to night golden windows (01:00–04:45) and freight headway valleys (13:15–15:15). Smoothed maintenance load variance by ${strainReliefPts} points, eliminating simultaneous track possession bottlenecks.`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    };
+  }
+
   public publishSchedule(
     officerName?: string,
     role?: string,
@@ -2478,5 +2704,14 @@ export async function batchApplyAiScheduleOffsets(
 ): Promise<{ count: number }> {
   return mockStore.batchApplyAiScheduleOffsets(proposals);
 }
+
+export async function autoBalanceCorridor(
+  corridorId: string
+): Promise<CorridorAutoBalanceResult> {
+  // Simulate AI constraint processing micro-delay for realistic feedback
+  await new Promise((r) => setTimeout(r, 650));
+  return mockStore.autoBalanceCorridor(corridorId);
+}
+
 
 

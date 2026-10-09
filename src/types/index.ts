@@ -1257,4 +1257,47 @@ export type {
   PredictiveLinearRegressionResult,
 } from '../services/predictiveLinearRegressionService';
 
+export interface CorridorAutoBalanceShift {
+  blockId: string;
+  requestId?: string;
+  taskId?: string;
+  department: string;
+  assetId: string;
+  assetName: string;
+  oldTimeWindow: string;
+  newTimeWindow: string;
+  durationMinutes: number;
+  reason: string;
+  varianceRelief: string;
+}
+
+export interface CorridorHourlyLoadPoint {
+  hourLabel: string;
+  preLoadPct: number;
+  postLoadPct: number;
+  isPeakSpike: boolean;
+  trafficDensityPct: number;
+}
+
+export interface CorridorAutoBalanceResult {
+  success: boolean;
+  corridorId: string;
+  corridorCode: string;
+  corridorName: string;
+  preLoadPct: number;
+  postLoadPct: number;
+  loadReliefPct: number;
+  prePeakStrain: number;
+  postPeakStrain: number;
+  strainReliefPts: number;
+  rebalancedBlocksCount: number;
+  incorporatedRequestsCount: number;
+  resolvedConflictsCount: number;
+  shifts: CorridorAutoBalanceShift[];
+  hourlyLoadCurve: CorridorHourlyLoadPoint[];
+  aiRationale: string;
+  timestamp: string;
+}
+
+
 
