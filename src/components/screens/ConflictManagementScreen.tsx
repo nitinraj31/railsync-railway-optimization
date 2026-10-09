@@ -70,6 +70,7 @@ import { DependencyConflictBanner } from '../conflicts/DependencyConflictBanner'
 import { DependencyReconciliationModal } from '../conflicts/DependencyReconciliationModal';
 import { AiConflictAssistModal } from '../modals/AiConflictAssistModal';
 import { BatchConflictResolutionPanel } from '../conflicts/BatchConflictResolutionPanel';
+import { WhatIfMaintenanceBlockSimulator } from '../conflicts/WhatIfMaintenanceBlockSimulator';
 import { INITIAL_CORRIDORS } from '../../data/mockData';
 
 interface ConflictManagementScreenProps {
@@ -117,7 +118,7 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [corridorFilter, setCorridorFilter] = useState<string>('ALL');
-  const [activeTab, setActiveTab] = useState<'OPEN' | 'PENDING_REVIEW' | 'BATCH_GROUPS' | 'RESOLVED' | 'CLOSED'>('OPEN');
+  const [activeTab, setActiveTab] = useState<'OPEN' | 'PENDING_REVIEW' | 'BATCH_GROUPS' | 'RESOLVED' | 'CLOSED' | 'WHAT_IF_SIMULATOR'>('OPEN');
   const [openConflictsViewMode, setOpenConflictsViewMode] = useState<'TABLE' | 'CLUSTERS'>('TABLE');
 
   // Checkbox-based batch action menu states
@@ -1046,6 +1047,21 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
             >
               <Award className="w-4 h-4 text-sky-400" />
               <span>DRM Safety Audit Report</span>
+            </button>
+
+            {/* What-If Simulator Tool Header Action */}
+            <button
+              id="btn-open-what-if-tool"
+              data-testid="btn-open-what-if-tool"
+              onClick={() => setActiveTab('WHAT_IF_SIMULATOR')}
+              className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-emerald-800 to-teal-800 hover:from-emerald-700 hover:to-teal-700 border border-emerald-400/60 text-white text-xs font-mono font-bold flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-950/60 transition-all hover:scale-[1.02]"
+              title="Open interactive What-If delay simulator tool to toggle specific maintenance blocks off and update train delay projections"
+            >
+              <Activity className="w-4 h-4 text-emerald-300 animate-pulse" />
+              <span>&quot;What-If&quot; Delay Simulator</span>
+              <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-black/40 text-emerald-200 border border-emerald-300/40">
+                Tool
+              </span>
             </button>
             {openConflicts.length > 0 && (
               <button
@@ -2344,6 +2360,29 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
             {filteredClosedConflicts.length} / {closedConflicts.length}
           </span>
         </button>
+
+        {/* WHAT-IF SIMULATOR TOOL TAB */}
+        <button
+          id="tab-conflicts-what-if"
+          data-testid="tab-conflicts-what-if"
+          onClick={() => setActiveTab('WHAT_IF_SIMULATOR')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-mono font-bold flex items-center gap-2 cursor-pointer transition-all ${
+            activeTab === 'WHAT_IF_SIMULATOR'
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-950/60 border border-emerald-400'
+              : 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-800'
+          }`}
+          title="Open 'What-If' simulator tool to toggle specific maintenance blocks off and instantly update train delay projections"
+        >
+          <Activity className={`w-3.5 h-3.5 ${activeTab === 'WHAT_IF_SIMULATOR' ? 'text-white' : 'text-emerald-400'}`} />
+          <span>&quot;What-If&quot; Delay Simulator</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+            activeTab === 'WHAT_IF_SIMULATOR'
+              ? 'bg-emerald-900 text-white'
+              : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+          }`}>
+            SIMULATOR
+          </span>
+        </button>
       </div>
 
       {/* CONFLICTS TABLE VIEW */}
@@ -2581,6 +2620,19 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
                             className="p-1.5 rounded-lg bg-sky-950 hover:bg-sky-900 border border-sky-700/80 text-sky-300 cursor-pointer transition-colors"
                           >
                             <Activity className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* What-If Simulator Tool Switch Button */}
+                          <button
+                            id={`btn-what-if-tool-${c.conflictId.toLowerCase()}`}
+                            data-testid={`btn-what-if-tool-${c.conflictId.toLowerCase()}`}
+                            onClick={() => {
+                              setActiveTab('WHAT_IF_SIMULATOR');
+                            }}
+                            title="Open 'What-If' Delay Simulator Tool to toggle this block off and instantly update train delay projections"
+                            className="p-1.5 rounded-lg bg-emerald-950 hover:bg-emerald-900 border border-emerald-700/80 text-emerald-300 cursor-pointer transition-colors shadow-xs"
+                          >
+                            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
                           </button>
 
                           {/* Caution Order T/409 Memo Button */}
@@ -3093,6 +3145,24 @@ export const ConflictManagementScreen: React.FC<ConflictManagementScreenProps> =
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* WHAT-IF MAINTENANCE BLOCK DELAY SIMULATOR VIEW */}
+      {activeTab === 'WHAT_IF_SIMULATOR' && (
+        <div
+          id="what-if-delay-simulator-view"
+          data-testid="what-if-delay-simulator-view"
+          className="animate-in fade-in duration-200"
+        >
+          <WhatIfMaintenanceBlockSimulator
+            conflicts={conflicts}
+            corridors={corridors}
+            blocks={blocks}
+            onRefreshConflicts={onRefreshConflicts}
+            onNavigateToScreen={onNavigate}
+            initialTargetBlockId={targetConflictBlockId}
+          />
         </div>
       )}
 
