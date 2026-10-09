@@ -67,6 +67,7 @@ import { PredictiveRiskAlertBanner } from '../predictive/PredictiveRiskAlertBann
 import { predictiveRiskNotificationService } from '../../services/predictiveRiskNotificationService';
 import { SustainabilityDashboard } from '../sustainability/SustainabilityDashboard';
 import { CorridorDigitalTwin } from '../digitaltwin/CorridorDigitalTwin';
+import { CorridorRealtimeLoadCard } from '../corridor/CorridorRealtimeLoadCard';
 import { NetworkResilienceCard } from '../resilience/NetworkResilienceCard';
 import { NetworkHealthSummarySection } from '../corridor/NetworkHealthSummarySection';
 import { FleetHealthHeatmap } from '../fleet/FleetHealthHeatmap';
@@ -749,6 +750,21 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
             </span>
           </button>
           <button
+            id="jump-to-corridor-load-btn"
+            onClick={() => {
+              const el = document.getElementById('corridor-realtime-load-card');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-sky-950/90 hover:bg-sky-900 border border-sky-600/60 text-sky-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-950/50 transition-colors font-mono"
+            title="Jump to Corridor Real-Time Utilization & Active Maintenance Load"
+          >
+            <Gauge className="w-4 h-4 text-sky-400 animate-pulse" />
+            <span>Corridor Load</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-sky-500/20 text-sky-200 border border-sky-400/40 uppercase font-bold">
+              {corridors.length} Corridors
+            </span>
+          </button>
+          <button
             id="jump-to-resilience-btn"
             onClick={() => {
               const el = document.getElementById('network-resilience-card');
@@ -1044,6 +1060,14 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
         onSelectTarget={(target) => {
           setMapFocusTarget({ type: target.type as any, id: target.id });
         }}
+      />
+
+      {/* CORRIDOR REAL-TIME UTILIZATION & ACTIVE MAINTENANCE LOAD CARD */}
+      <CorridorRealtimeLoadCard
+        corridors={corridors}
+        blocks={blocks}
+        onNavigate={onNavigate}
+        onRefreshData={onRefreshData}
       />
 
       {/* NETWORK RESILIENCE & HEALTH MONITOR CARD */}
