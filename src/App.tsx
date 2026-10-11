@@ -64,6 +64,7 @@ import { FinalValidationScreen } from './components/screens/FinalValidationScree
 import { SystemAuditScreen } from './components/screens/SystemAuditScreen';
 import { ShadowBlockScreen } from './components/screens/ShadowBlockScreen';
 import { CrewFatigueToastNotification } from './components/notifications/CrewFatigueToastNotification';
+import { QuickAlertNotificationBanner } from './components/notifications/QuickAlertNotificationBanner';
 
 export default function App() {
   // Authentication State (default logged in as Railway Planner for instant SIH review)
@@ -355,6 +356,10 @@ export default function App() {
       setTargetConflictBlockId(undefined);
     }
 
+    if (screen === 'defects' && itemData?.defectId) {
+      setTargetDefectId(itemData.defectId);
+    }
+
     if (screen === 'resource_allocation' && itemData) {
       setTargetResourceParams({
         resourceType: itemData.resourceType,
@@ -399,6 +404,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#080d19] text-slate-100 flex flex-col font-sans selection:bg-sky-500/30 selection:text-sky-200">
+      {/* High-Priority Quick-Alert Notification Banner at very top */}
+      <QuickAlertNotificationBanner
+        conflicts={conflicts}
+        defects={defects}
+        corridors={corridors}
+        onNavigate={handleNavigate}
+        onRefreshData={refreshAllData}
+      />
+
       {/* Top Persistent Navigation Bar */}
       <Navbar
         currentUser={currentUser}

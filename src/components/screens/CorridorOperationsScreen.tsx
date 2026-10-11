@@ -19,11 +19,15 @@ import {
   Eye,
   EyeOff,
   Filter,
+  FileSpreadsheet,
+  Download,
 } from 'lucide-react';
-import { Corridor, OptimizedBlock, Train, Conflict } from '../../types';
+import { Corridor, OptimizedBlock, Train, Conflict, CorridorResourceMetrics } from '../../types';
 import { CorridorDefectPredictiveModule } from '../predictive/CorridorDefectPredictiveModule';
 import { CorridorTrackSegmentHeatmap } from '../corridor/CorridorTrackSegmentHeatmap';
 import { railwayAudio } from '../../services/railwayAudio';
+import { exportCorridorCsvReport } from '../../services/corridorReportService';
+import { mockStore } from '../../services/api';
 
 interface CorridorOperationsScreenProps {
   corridors: Corridor[];
@@ -46,6 +50,8 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
   const [activeViewMode, setActiveViewMode] = useState<'INTEGRATED' | 'HEATMAP_ONLY' | 'PREDICTIVE_ONLY' | 'TOPOLOGY_ONLY'>('INTEGRATED');
   const [heatmapMode, setHeatmapMode] = useState<'SEVERITY' | 'DURATION'>('SEVERITY');
   const [hideZeroMaintenance, setHideZeroMaintenance] = useState<boolean>(false);
+  const [isExportingCsv, setIsExportingCsv] = useState<boolean>(false);
+  const [exportFeedback, setExportFeedback] = useState<string | null>(null);
 
   const selectedCorridor = corridors.find((c) => c.id === selectedCorridorId) || corridors[0];
   const corridorBlocks = blocks.filter((b) => b.corridorId === selectedCorridor.id);
@@ -53,6 +59,41 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
   const corridorConflicts = conflicts.filter(
     (c) => c.corridorId === selectedCorridor.id && c.status === 'OPEN'
   );
+
+  // Trigger download of structured CSV log containing maintenance blocks, conflicts, and resource metrics
+  const handleExportCsv = (targetCorridor?: Corridor) => {
+    const corridorToUse = targetCorridor || selectedCorridor;
+    railwayAudio.playBeep(880, 0.08);
+    setIsExportingCsv(true);
+
+    try {
+      const allMetrics = mockStore.getCorridorResourceMetrics();
+      const resourceMetrics = allMetrics.find((m) => m.corridorId === corridorToUse.id);
+      const targetBlocks = blocks.filter((b) => b.corridorId === corridorToUse.id);
+      const targetConflicts = conflicts.filter((c) => c.corridorId === corridorToUse.id);
+      const targetTrains = trains.filter((t) => t.corridorId === corridorToUse.id);
+
+      const result = exportCorridorCsvReport({
+        corridor: corridorToUse,
+        blocks: targetBlocks,
+        conflicts: targetConflicts,
+        trains: targetTrains,
+        resourceMetrics,
+      });
+
+      railwayAudio.playStationChime();
+      setExportFeedback(
+        `Exported CSV: ${result.filename} (${targetBlocks.length} Blocks, ${targetConflicts.length} Conflicts)`
+      );
+      setTimeout(() => setExportFeedback(null), 5000);
+    } catch (err) {
+      console.error('Failed to generate Corridor CSV Report:', err);
+      setExportFeedback('Export failed. Please check system logs.');
+      setTimeout(() => setExportFeedback(null), 3500);
+    } finally {
+      setIsExportingCsv(false);
+    }
+  };
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
@@ -234,6 +275,20 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
               </button>
             </div>
 
+            {/* Export CSV Report Button */}
+            <button
+              type="button"
+              id="btn-export-corridor-csv"
+              data-testid="btn-export-corridor-csv"
+              onClick={() => handleExportCsv(selectedCorridor)}
+              disabled={isExportingCsv}
+              className="px-3.5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 text-white text-xs font-bold border border-emerald-500/80 shadow-md shadow-emerald-950/60 flex items-center gap-1.5 cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-50"
+              title={`Download structured CSV log of all current maintenance blocks, active conflicts, and resource utilization metrics for Corridor ${selectedCorridor.id} (${selectedCorridor.name})`}
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+              <span>{isExportingCsv ? 'Exporting CSV...' : 'Export CSV Report'}</span>
+            </button>
+
             <button
               onClick={onNavigateToBlockTimeline}
               className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center gap-1.5 cursor-pointer"
@@ -244,6 +299,27 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
           </div>
         </div>
       </div>
+
+      {/* Export Success / Status Toast Banner */}
+      {exportFeedback && (
+        <div
+          id="corridor-export-feedback-banner"
+          data-testid="corridor-export-feedback-banner"
+          className="bg-emerald-950/90 border border-emerald-500 text-emerald-100 px-4 py-2.5 rounded-xl shadow-lg flex items-center justify-between gap-3 text-xs font-mono animate-in fade-in slide-in-from-top-2"
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{exportFeedback}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExportFeedback(null)}
+            className="text-emerald-400 hover:text-white p-0.5 rounded cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* =========================================================================
           TRACK SEGMENTS HEATMAP VISUALIZATION (RED-TO-GREEN COLOR CODING)
@@ -444,6 +520,22 @@ export const CorridorOperationsScreen: React.FC<CorridorOperationsScreenProps> =
                 </span>
               )}
             </div>
+
+            <div className="h-4 w-px bg-slate-800 hidden sm:block" />
+
+            {/* Dedicated Corridor CSV Report Export Button */}
+            <button
+              type="button"
+              id="btn-export-corridor-csv-details"
+              data-testid="btn-export-corridor-csv-details"
+              onClick={() => handleExportCsv(selectedCorridor)}
+              disabled={isExportingCsv}
+              className="px-2.5 py-1.5 rounded-lg bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-600/80 text-emerald-300 hover:text-white text-[11px] font-bold flex items-center gap-1.5 cursor-pointer shadow-sm transition-all hover:scale-105 disabled:opacity-50"
+              title={`Download structured CSV report with maintenance blocks, conflicts, and resource metrics for Corridor ${selectedCorridor.id}`}
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Export CSV Log</span>
+            </button>
           </div>
         </div>
 

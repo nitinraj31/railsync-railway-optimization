@@ -74,6 +74,7 @@ import { FleetHealthHeatmap } from '../fleet/FleetHealthHeatmap';
 import { ElectricalGridHealth } from '../electrical/ElectricalGridHealth';
 import { DepartmentOperationsHub } from '../departments/DepartmentOperationsHub';
 import { EnvironmentalImpactModule } from '../environmental/EnvironmentalImpactModule';
+import { HistoricalApprovalRateChart } from '../dashboard/HistoricalApprovalRateChart';
 import { DependencyConflictBanner } from '../conflicts/DependencyConflictBanner';
 import { ScheduleAutoSaveNotification } from '../schedule/ScheduleAutoSaveNotification';
 import { QuickBlockRescheduleModal } from '../schedule/QuickBlockRescheduleModal';
@@ -883,6 +884,21 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
             </span>
           </button>
           <button
+            id="jump-to-approval-history-btn"
+            onClick={() => {
+              const el = document.getElementById('historical-approval-rate-card');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-sky-950/90 hover:bg-sky-900 border border-sky-600/60 text-sky-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-950/50 transition-colors font-mono"
+            title="Jump to 30-Day Historical Block Request Approval Rates Line Graph"
+          >
+            <Activity className="w-4 h-4 text-sky-400 animate-pulse" />
+            <span>Approval Rates</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-sky-500/20 text-sky-200 border border-sky-400/40 uppercase font-bold">
+              30D Trend
+            </span>
+          </button>
+          <button
             id="jump-to-predictive-panel-btn"
             onClick={() => {
               const el = document.getElementById('predictive-maintenance-panel');
@@ -1126,6 +1142,11 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
       <EnvironmentalImpactModule
         corridors={corridors}
         blocks={blocks}
+        onNavigate={onNavigate}
+      />
+
+      {/* HISTORICAL BLOCK REQUEST APPROVAL RATES LINE GRAPH (LAST 30 DAYS - RECHARTS & D3.JS) */}
+      <HistoricalApprovalRateChart
         onNavigate={onNavigate}
       />
 
