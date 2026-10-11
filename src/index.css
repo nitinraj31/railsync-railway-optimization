@@ -1,1 +1,20 @@
 @import "tailwindcss";
+
+@keyframes scan-beam {
+  0% {
+    top: 8%;
+    opacity: 0.8;
+  }
+  50% {
+    top: 92%;
+    opacity: 1;
+  }
+  100% {
+    top: 8%;
+    opacity: 0.8;
+  }
+}
+
+.animate-scan-beam {
+  animation: scan-beam 2.2s ease-in-out infinite;
+}

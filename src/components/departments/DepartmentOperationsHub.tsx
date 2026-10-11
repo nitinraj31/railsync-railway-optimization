@@ -30,7 +30,11 @@ import {
   Download,
 } from 'lucide-react';
 import { DepartmentType, Corridor } from '../../types';
-import { printOfficialBulletin, exportBulletinAsHTML } from '../../services/exportBulletinService';
+import {
+  printOfficialBulletin,
+  exportBulletinAsPDF,
+  exportBulletinAsHTML,
+} from '../../services/exportBulletinService';
 import { mockStore } from '../../services/api';
 import { DependencyConflictBanner } from '../conflicts/DependencyConflictBanner';
 
@@ -455,17 +459,25 @@ export const DepartmentOperationsHub: React.FC<DepartmentOperationsHubProps> = (
           </button>
           <button
             id="export-dept-bulletin-btn"
-            onClick={() => {
-              exportBulletinAsHTML({
-                corridors,
-                customNotes: `Department Operations Directive: ${selectedDept === 'ALL' ? 'All 5 Operating Departments (Joint Coordination)' : selectedDept}`,
-              });
+            onClick={async () => {
+              try {
+                await exportBulletinAsPDF({
+                  corridors,
+                  customNotes: `Department Operations Directive: ${selectedDept === 'ALL' ? 'All 5 Operating Departments (Joint Coordination)' : selectedDept}`,
+                });
+              } catch (e) {
+                console.error('PDF export fallback:', e);
+                exportBulletinAsHTML({
+                  corridors,
+                  customNotes: `Department Operations Directive: ${selectedDept === 'ALL' ? 'All 5 Operating Departments (Joint Coordination)' : selectedDept}`,
+                });
+              }
             }}
             className="px-3 py-1.5 rounded-lg bg-teal-800 hover:bg-teal-700 text-teal-100 border border-teal-700 font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
-            title="Export Official Departmental Bulletin as HTML / PDF Dossier"
+            title="Export Official Departmental Bulletin as PDF (with QR Code Deep Link to RAILSYNC Validation Report)"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export Bulletin</span>
+            <span>Export Bulletin (PDF)</span>
           </button>
         </div>
       </div>

@@ -24,6 +24,7 @@ import {
 import { PublicationInfo, Corridor, OptimizedBlock } from '../../types';
 import {
   printOfficialBulletin,
+  exportBulletinAsPDF,
   exportBulletinAsHTML,
   exportBulletinAsCSV,
   exportBulletinAsText,
@@ -110,6 +111,23 @@ Engineers must enforce the locked timetable slots without deviation.
     setCopied(true);
     showNotification('Official gazette text copied to clipboard!');
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+
+  const handleExportPDF = async () => {
+    setIsExportingPdf(true);
+    try {
+      await exportBulletinAsPDF({ publicationState, corridors, blocks });
+      showNotification('Exported Official Bulletin PDF with Safety QR Deep Link!');
+      setShowExportMenu(false);
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      showNotification('PDF generation encountered an issue, trying HTML fallback...');
+      exportBulletinAsHTML({ publicationState, corridors, blocks });
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   const handlePrint = () => {
@@ -583,6 +601,21 @@ Engineers must enforce the locked timetable slots without deviation.
                     <span>Export Formats</span>
                     <span className="text-slate-500">{totalBlocks} Blocks</span>
                   </div>
+
+                  <button
+                    id="export-bulletin-pdf-btn"
+                    onClick={handleExportPDF}
+                    disabled={isExportingPdf}
+                    className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-emerald-950/60 hover:text-emerald-200 text-emerald-200 flex items-center gap-2 transition-colors cursor-pointer border border-emerald-600/40 bg-emerald-950/20"
+                  >
+                    <Download className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div>
+                      <div className="font-bold text-emerald-300">
+                        {isExportingPdf ? 'Generating PDF...' : 'Official Bulletin PDF (A4)'}
+                      </div>
+                      <div className="text-[10px] text-emerald-200/80">With QR Code Deep Link to Validation Report</div>
+                    </div>
+                  </button>
 
                   <button
                     onClick={() => {

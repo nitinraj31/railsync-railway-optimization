@@ -44,6 +44,7 @@ import { BackendSettingsModal } from './components/common/BackendSettingsModal';
 import { BlockBurstingWatchdog } from './components/common/BlockBurstingWatchdog';
 import { RailwayFormsModal } from './components/modals/RailwayFormsModal';
 import { ControllerHotkeysModal } from './components/modals/ControllerHotkeysModal';
+import { QrCodeScannerModal } from './components/common/QrCodeScannerModal';
 import { i18n, Language } from './services/i18n';
 import { railwayAudio } from './services/railwayAudio';
 import { printOfficialBulletin } from './services/exportBulletinService';
@@ -75,6 +76,8 @@ export default function App() {
 
   // Modals
   const [searchModalOpen, setSearchModalOpen] = useState<boolean>(false);
+  const [searchQueryPrefill, setSearchQueryPrefill] = useState<string>('');
+  const [qrScannerOpen, setQrScannerOpen] = useState<boolean>(false);
   const [demoModalOpen, setDemoModalOpen] = useState<boolean>(false);
   const [backendModalOpen, setBackendModalOpen] = useState<boolean>(false);
   const [formsModalOpen, setFormsModalOpen] = useState<boolean>(false);
@@ -84,6 +87,7 @@ export default function App() {
 
   // Target Block or item for drilldowns (e.g. from Timeline or Search to Conflict)
   const [targetConflictBlockId, setTargetConflictBlockId] = useState<string | undefined>(undefined);
+  const [targetBlockId, setTargetBlockId] = useState<string | undefined>(undefined);
   const [targetDefectId, setTargetDefectId] = useState<string | undefined>(undefined);
   const [targetResourceParams, setTargetResourceParams] = useState<{
     resourceType?: string;
@@ -220,6 +224,7 @@ export default function App() {
       // Escape closes modals
       if (e.key === 'Escape') {
         setSearchModalOpen(false);
+        setQrScannerOpen(false);
         setDemoModalOpen(false);
         setBackendModalOpen(false);
         setFormsModalOpen(false);
@@ -304,6 +309,14 @@ export default function App() {
         return;
       }
 
+      // 'Q' or 'q' opens Field QR Scanner
+      if (e.key.toLowerCase() === 'q') {
+        e.preventDefault();
+        railwayAudio.playBeep(900, 0.06);
+        setQrScannerOpen((prev) => !prev);
+        return;
+      }
+
       // '?' opens Controller Hotkeys Guide
       if (e.key === '?' || (e.shiftKey && e.key === '/')) {
         e.preventDefault();
@@ -356,6 +369,10 @@ export default function App() {
       setTargetConflictBlockId(undefined);
     }
 
+    if (screen === 'timeline' && itemData?.blockId) {
+      setTargetBlockId(itemData.blockId);
+    }
+
     if (screen === 'defects' && itemData?.defectId) {
       setTargetDefectId(itemData.defectId);
     }
@@ -376,6 +393,12 @@ export default function App() {
   const handleNavigateToConflict = (blockId?: string) => {
     setTargetConflictBlockId(blockId);
     setCurrentScreen('conflicts');
+  };
+
+  // Open Global Search pre-filled with scanned query
+  const handleOpenSearchWithQuery = (query: string) => {
+    setSearchQueryPrefill(query);
+    setSearchModalOpen(true);
   };
 
   // Count open conflicts and pending requests
@@ -419,6 +442,7 @@ export default function App() {
         onSelectRole={handleSelectRole}
         onLogout={handleLogout}
         onOpenSearch={() => setSearchModalOpen(true)}
+        onOpenQrScanner={() => setQrScannerOpen(true)}
         onOpenDemoWalkthrough={() => setDemoModalOpen(true)}
         onOpenBackendSettings={() => setBackendModalOpen(true)}
         presentationMode={presentationMode}
@@ -489,6 +513,7 @@ export default function App() {
               defects={defects}
               onRefreshDefects={refreshAllData}
               initialSelectedDefectId={targetDefectId}
+              onOpenQrScanner={() => setQrScannerOpen(true)}
             />
           )}
 
@@ -514,6 +539,7 @@ export default function App() {
               corridors={corridors}
               conflicts={conflicts}
               blockRequests={requests}
+              targetBlockId={targetBlockId}
               onNavigateToConflict={handleNavigateToConflict}
               onRefreshData={refreshAllData}
             />
@@ -601,8 +627,21 @@ export default function App() {
       {/* Global Modals */}
       <GlobalSearchModal
         isOpen={searchModalOpen}
-        onClose={() => setSearchModalOpen(false)}
+        onClose={() => {
+          setSearchModalOpen(false);
+          setSearchQueryPrefill('');
+        }}
         onNavigate={handleNavigate}
+        initialQuery={searchQueryPrefill}
+        onOpenQrScanner={() => setQrScannerOpen(true)}
+      />
+
+      {/* Field Camera QR Code Scanner */}
+      <QrCodeScannerModal
+        isOpen={qrScannerOpen}
+        onClose={() => setQrScannerOpen(false)}
+        onNavigate={handleNavigate}
+        onOpenSearchWithQuery={handleOpenSearchWithQuery}
       />
 
       <SihDemoModal

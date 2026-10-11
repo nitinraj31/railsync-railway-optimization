@@ -75,6 +75,7 @@ import { ElectricalGridHealth } from '../electrical/ElectricalGridHealth';
 import { DepartmentOperationsHub } from '../departments/DepartmentOperationsHub';
 import { EnvironmentalImpactModule } from '../environmental/EnvironmentalImpactModule';
 import { HistoricalApprovalRateChart } from '../dashboard/HistoricalApprovalRateChart';
+import { HighLevelKpiDashboardModule } from '../dashboard/HighLevelKpiDashboardModule';
 import { DependencyConflictBanner } from '../conflicts/DependencyConflictBanner';
 import { ScheduleAutoSaveNotification } from '../schedule/ScheduleAutoSaveNotification';
 import { QuickBlockRescheduleModal } from '../schedule/QuickBlockRescheduleModal';

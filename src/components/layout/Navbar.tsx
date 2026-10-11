@@ -20,6 +20,7 @@ import {
   Languages,
   FileText,
   Keyboard,
+  Scan,
 } from 'lucide-react';
 import { User, UserRole, AppNotification, SystemStatus, PublicationWorkflowState } from '../../types';
 import { mockStore, getSystemStatus } from '../../services/api';
@@ -31,6 +32,7 @@ interface NavbarProps {
   onSelectRole: (role: UserRole) => void;
   onLogout: () => void;
   onOpenSearch: () => void;
+  onOpenQrScanner?: () => void;
   onOpenDemoWalkthrough: () => void;
   onOpenBackendSettings: () => void;
   presentationMode: boolean;
@@ -50,6 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectRole,
   onLogout,
   onOpenSearch,
+  onOpenQrScanner,
   onOpenDemoWalkthrough,
   onOpenBackendSettings,
   presentationMode,
@@ -221,6 +224,22 @@ export const Navbar: React.FC<NavbarProps> = ({
             ⌘K
           </kbd>
         </button>
+
+        {/* QR Code Scanner Button */}
+        {onOpenQrScanner && (
+          <button
+            id="navbar-qr-scanner-btn"
+            onClick={onOpenQrScanner}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-cyan-950/80 hover:bg-cyan-900/80 border border-cyan-600/60 text-xs text-cyan-300 transition-all shadow-sm shadow-cyan-950/40 cursor-pointer"
+            title="Scan Track-side Defect or Block QR Code with Camera (Hotkeys: 'Q')"
+          >
+            <Scan className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="font-semibold hidden sm:inline">Scan QR</span>
+            <kbd className="hidden lg:inline-block px-1 py-0.2 text-[9px] font-mono bg-cyan-900/70 border border-cyan-700/60 text-cyan-200 rounded">
+              Q
+            </kbd>
+          </button>
+        )}
 
         {/* SIH Live Demo Walkthrough Trigger */}
         <button

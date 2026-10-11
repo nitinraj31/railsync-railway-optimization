@@ -40,6 +40,7 @@ import {
   Flame,
   TrendingUp,
   Activity,
+  Scan,
 } from 'lucide-react';
 import {
   Defect,
@@ -106,6 +107,7 @@ interface DefectReportingScreenProps {
   defects: Defect[];
   onRefreshDefects: () => void;
   initialSelectedDefectId?: string;
+  onOpenQrScanner?: () => void;
 }
 
 export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
@@ -115,6 +117,7 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
   defects,
   onRefreshDefects,
   initialSelectedDefectId,
+  onOpenQrScanner,
 }) => {
   const [selectedAssetId, setSelectedAssetId] = useState('A023');
   const [department, setDepartment] = useState<DepartmentType>('S&T');
@@ -833,6 +836,18 @@ export const DefectReportingScreen: React.FC<DefectReportingScreenProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {onOpenQrScanner && (
+              <button
+                type="button"
+                id="btn-scan-defect-qr-scanner"
+                onClick={onOpenQrScanner}
+                className="text-xs font-mono px-3 py-1 rounded bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-600/70 text-cyan-300 font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shadow-cyan-950/40"
+                title="Scan Track-Side Defect QR Placard with Camera"
+              >
+                <Scan className="w-3.5 h-3.5 text-cyan-400" />
+                <span>SCAN FIELD QR</span>
+              </button>
+            )}
             <button
               type="button"
               id="btn-switch-to-geospatial-cluster-map"

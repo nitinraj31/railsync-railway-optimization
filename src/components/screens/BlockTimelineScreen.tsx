@@ -52,6 +52,7 @@ export interface BlockTimelineScreenProps {
   conflicts?: Conflict[];
   blockRequests?: BlockRequest[];
   initialShowHeatmap?: boolean;
+  targetBlockId?: string;
 }
 
 interface EmptySlot {
@@ -84,6 +85,7 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
   conflicts,
   blockRequests,
   initialShowHeatmap = true,
+  targetBlockId,
 }) => {
   // Local state for blocks to support immediate optimistic drag-and-drop feedback
   const [localBlocks, setLocalBlocks] = useState<OptimizedBlock[]>(blocks);
@@ -94,6 +96,16 @@ export const BlockTimelineScreen: React.FC<BlockTimelineScreenProps> = ({
   const [selectedCorridorId, setSelectedCorridorId] = useState<string>('ALL');
   const [selectedBlock, setSelectedBlock] = useState<OptimizedBlock | null>(null);
   const [selectedTrain, setSelectedTrain] = useState<Train | null>(null);
+
+  // Auto-select block when targetBlockId is passed (e.g. from QR scan)
+  useEffect(() => {
+    if (targetBlockId) {
+      const found = blocks.find((b) => b.blockId.toUpperCase() === targetBlockId.toUpperCase());
+      if (found) {
+        setSelectedBlock(found);
+      }
+    }
+  }, [targetBlockId, blocks]);
 
   // Visual Heatmap Overlay State (Highlights high conflict frequency & pending maintenance requests)
   const [showHeatmapOverlay, setShowHeatmapOverlay] = useState<boolean>(initialShowHeatmap ?? true);

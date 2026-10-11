@@ -1,19 +1,29 @@
-import React, { useState, useMemo } from 'react';
-import { Search, X, Train, AlertTriangle, Wrench, FileText, Bug, ArrowRight, Layers } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Search, X, Train, AlertTriangle, Wrench, FileText, Bug, ArrowRight, Layers, Scan } from 'lucide-react';
 import { mockStore } from '../../services/api';
 
 interface GlobalSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   onNavigate: (screen: string, itemData?: any) => void;
+  initialQuery?: string;
+  onOpenQrScanner?: () => void;
 }
 
 export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   isOpen,
   onClose,
   onNavigate,
+  initialQuery,
+  onOpenQrScanner,
 }) => {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery || '');
+
+  useEffect(() => {
+    if (isOpen && initialQuery !== undefined) {
+      setQuery(initialQuery);
+    }
+  }, [isOpen, initialQuery]);
 
   const searchResults = useMemo(() => {
     if (!query.trim()) return [];
@@ -139,11 +149,24 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
             className="w-full bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none font-mono"
           />
           {query && (
-            <button onClick={() => setQuery('')} className="p-1 hover:text-white text-slate-400">
+            <button onClick={() => setQuery('')} className="p-1 hover:text-white text-slate-400 mr-1">
               <X className="w-4 h-4" />
             </button>
           )}
-          <button onClick={onClose} className="ml-2 text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded bg-slate-800">
+          {onOpenQrScanner && (
+            <button
+              onClick={() => {
+                onClose();
+                onOpenQrScanner();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-950/90 hover:bg-cyan-900 border border-cyan-700/60 text-cyan-300 text-xs font-mono mr-2 transition-colors shrink-0"
+              title="Open Camera QR Code Scanner"
+            >
+              <Scan className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Scan QR</span>
+            </button>
+          )}
+          <button onClick={onClose} className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded bg-slate-800">
             ESC
           </button>
         </div>

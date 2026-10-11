@@ -26,7 +26,12 @@ import { PublishedScheduleModal } from '../modals/PublishedScheduleModal';
 import { DailyBlockSchedulePdfModal } from '../modals/DailyBlockSchedulePdfModal';
 import { ValidationReportPdfModal } from '../modals/ValidationReportPdfModal';
 import { downloadValidationReportPdf } from '../../services/validationReportPdfService';
-import { printOfficialBulletin, exportBulletinAsHTML, exportBulletinAsCSV } from '../../services/exportBulletinService';
+import {
+  printOfficialBulletin,
+  exportBulletinAsPDF,
+  exportBulletinAsHTML,
+  exportBulletinAsCSV,
+} from '../../services/exportBulletinService';
 
 interface FinalValidationScreenProps {
   currentUser: User | null;
@@ -307,18 +312,28 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
               </button>
 
               <button
-                onClick={() => {
-                  exportBulletinAsHTML({
-                    publicationState,
-                    corridors,
-                    blocks,
-                  });
+                id="export-bulletin-pdf-final-btn"
+                onClick={async () => {
+                  try {
+                    await exportBulletinAsPDF({
+                      publicationState,
+                      corridors,
+                      blocks,
+                    });
+                  } catch (e) {
+                    console.error('PDF export fallback:', e);
+                    exportBulletinAsHTML({
+                      publicationState,
+                      corridors,
+                      blocks,
+                    });
+                  }
                 }}
-                className="px-3 py-2 rounded-lg bg-teal-800 hover:bg-teal-700 text-teal-100 text-xs font-medium border border-teal-700 flex items-center gap-1.5 transition-colors"
-                title="Export Bulletin as Official HTML/PDF Document"
+                className="px-3 py-2 rounded-lg bg-teal-800 hover:bg-teal-700 text-teal-100 text-xs font-medium border border-teal-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Export Official Bulletin as PDF (with QR Code deep link back to RAILSYNC validation report)"
               >
                 <Download className="w-3.5 h-3.5 text-teal-300" />
-                <span>Export Bulletin</span>
+                <span>Export Bulletin (PDF)</span>
               </button>
 
               <button

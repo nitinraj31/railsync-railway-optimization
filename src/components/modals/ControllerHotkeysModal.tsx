@@ -26,6 +26,8 @@ export const ControllerHotkeysModal: React.FC<ControllerHotkeysModalProps> = ({
     { key: '8', en: 'Maintenance Machinery & Assets', hi: 'अनुरक्षण मशीनरी एवं परिसंपत्तियां' },
     { key: '9', en: 'Moving Shadow-Block Engine', hi: 'शैडो-ब्लॉक इंजन' },
     { key: 'T / F', en: 'Official Railway Forms (T/409 & T/351)', hi: 'आधिकारिक प्रपत्र T/409 एवं T/351' },
+    { key: 'Q', en: 'Field Camera QR Code Scanner', hi: 'फील्ड कैमरा क्यूआर कोड स्कैनर' },
+    { key: 'Cmd + K', en: 'Global Search Palette', hi: 'वैश्विक खोज पैलेट' },
     { key: 'L', en: 'Switch Language (EN / हिंदी)', hi: 'भाषा बदलें (EN / हिंदी)' },
     { key: 'M', en: 'Mute / Unmute Railway Audio Siren', hi: 'रेलवे सायरन म्यूट/अनम्यूट' },
     { key: 'P', en: 'Print Official Railway Bulletin', hi: 'आधिकारिक बुलेटिन प्रिंट करें' },
