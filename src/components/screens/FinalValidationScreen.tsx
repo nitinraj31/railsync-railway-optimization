@@ -17,11 +17,15 @@ import {
   FileSpreadsheet,
   ExternalLink,
   Download,
+  FileText,
+  Stamp,
 } from 'lucide-react';
 import { ValidationResult, PublicationWorkflowState, User, Corridor, OptimizedBlock } from '../../types';
 import { publishSchedule, resolveAllRemainingConflicts, revokePublication } from '../../services/api';
 import { PublishedScheduleModal } from '../modals/PublishedScheduleModal';
 import { DailyBlockSchedulePdfModal } from '../modals/DailyBlockSchedulePdfModal';
+import { ValidationReportPdfModal } from '../modals/ValidationReportPdfModal';
+import { downloadValidationReportPdf } from '../../services/validationReportPdfService';
 import { printOfficialBulletin, exportBulletinAsHTML, exportBulletinAsCSV } from '../../services/exportBulletinService';
 
 interface FinalValidationScreenProps {
@@ -49,6 +53,9 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
   const [publishError, setPublishError] = useState<string | null>(null);
   const [showDossierModal, setShowDossierModal] = useState(false);
   const [showSignOffPdfModal, setShowSignOffPdfModal] = useState(false);
+  const [showValidationReportPdfModal, setShowValidationReportPdfModal] = useState(false);
+  const [isDirectExportingPdf, setIsDirectExportingPdf] = useState(false);
+  const [pdfDownloadFeedback, setPdfDownloadFeedback] = useState<string | null>(null);
   const [publishedData, setPublishedData] = useState<{
     success: boolean;
     scheduleId: string;
@@ -57,6 +64,26 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
 
   const isSafe = validation.status === 'SAFE_TO_PUBLISH';
   const isPublished = publicationState.currentState === 'PUBLISHED';
+
+  const handleDirectExportValidationPdf = async () => {
+    setIsDirectExportingPdf(true);
+    try {
+      await downloadValidationReportPdf({
+        validation,
+        publicationState,
+        corridors,
+        blocks,
+        auditorName: currentUser?.name,
+        auditorRole: currentUser?.role,
+      });
+      setPdfDownloadFeedback('Validation Report PDF downloaded successfully!');
+      setTimeout(() => setPdfDownloadFeedback(null), 3500);
+    } catch (err) {
+      console.error('Error generating Validation Report PDF:', err);
+    } finally {
+      setIsDirectExportingPdf(false);
+    }
+  };
 
   const handlePublish = async (autoResolveIfBlocked = false) => {
     if (isPublished) {
@@ -140,6 +167,17 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Export Styled Validation Report PDF Button */}
+            <button
+              id="export-validation-report-pdf-btn"
+              onClick={() => setShowValidationReportPdfModal(true)}
+              className="px-4 py-2 rounded-lg bg-gradient-to-r from-rose-600 via-rose-500 to-rose-600 hover:from-rose-500 hover:to-rose-400 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-950/40 transition-all cursor-pointer"
+              title="Export complete Safety Validation Report into a styled PDF document with 7-point compliance checklist, critical issues, and official seal placeholders"
+            >
+              <Download className="w-4 h-4 text-white" />
+              <span>EXPORT VALIDATION REPORT (PDF)</span>
+            </button>
+
             <button
               id="open-division-signoff-pdf-modal-btn"
               onClick={() => setShowSignOffPdfModal(true)}
@@ -382,6 +420,17 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
 
           {/* Action Trigger */}
           <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            {/* Quick Export Validation Report PDF */}
+            <button
+              id="action-box-export-validation-pdf-btn"
+              onClick={() => setShowValidationReportPdfModal(true)}
+              className="px-3.5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-300 hover:text-rose-200 border border-rose-600/70 font-bold text-xs flex items-center gap-2 shadow-md transition-all cursor-pointer"
+              title="Export styled Validation Report PDF with critical issues and official seal placeholders"
+            >
+              <FileText className="w-4 h-4 text-rose-400" />
+              <span>Export Validation PDF</span>
+            </button>
+
             {/* Direct Division Sign-off Report Generator Button */}
             <button
               id="action-box-division-signoff-pdf-btn"
@@ -503,6 +552,16 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
                 Click any issue to jump to the Alternative Slot recommender
               </p>
             </div>
+
+            <button
+              id="critical-issues-export-pdf-btn"
+              onClick={() => setShowValidationReportPdfModal(true)}
+              className="px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 border border-rose-700 text-rose-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Export Critical Issues Audit into official styled PDF"
+            >
+              <Download className="w-3.5 h-3.5 text-rose-400" />
+              <span>Export Issues PDF</span>
+            </button>
           </div>
 
           <div className="space-y-2.5 font-mono text-xs">
@@ -555,6 +614,17 @@ export const FinalValidationScreen: React.FC<FinalValidationScreenProps> = ({
       <DailyBlockSchedulePdfModal
         isOpen={showSignOffPdfModal}
         onClose={() => setShowSignOffPdfModal(false)}
+        validation={validation}
+        publicationState={publicationState}
+        corridors={corridors}
+        blocks={blocks}
+        currentUser={currentUser}
+      />
+
+      {/* STATUTORY SAFETY VALIDATION REPORT PDF EXPORT MODAL */}
+      <ValidationReportPdfModal
+        isOpen={showValidationReportPdfModal}
+        onClose={() => setShowValidationReportPdfModal(false)}
         validation={validation}
         publicationState={publicationState}
         corridors={corridors}

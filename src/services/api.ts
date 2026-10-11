@@ -49,8 +49,8 @@ import {
   ALTERNATIVE_SLOTS_DB,
 } from '../data/mockData';
 
-// API Base URL from environment or default
-const DEFAULT_API_BASE_URL = 'http://localhost:8000';
+// API Base URL from environment or default (relative root for Express server)
+const DEFAULT_API_BASE_URL = '';
 export const API_BASE_URL =
   (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_API_BASE_URL) ||
   DEFAULT_API_BASE_URL;
@@ -108,7 +108,7 @@ class RailSyncStore {
       if (savedMode === 'REAL' || savedMode === 'MOCK') {
         this.mode = savedMode;
       } else {
-        this.mode = 'MOCK';
+        this.mode = 'REAL';
       }
 
       const savedUrl = localStorage.getItem(STORAGE_KEYS.CUSTOM_BASE_URL);
