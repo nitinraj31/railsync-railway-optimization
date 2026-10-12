@@ -27,12 +27,14 @@ import {
   FileText,
   Flame,
   ArrowRight,
+  ArrowRightLeft,
   Share2,
 } from 'lucide-react';
 import { ValidationResult, Corridor, OptimizedBlock, BlockRequest, Defect, Asset, ManpowerGang } from '../../types';
 import { mockStore } from '../../services/api';
 import { railwayAudio } from '../../services/railwayAudio';
 import { KpiTrendSparklineTooltip, DailyTrendPoint } from './KpiTrendSparklineTooltip';
+import { CorridorEfficiencyComparison } from './CorridorEfficiencyComparison';
 
 interface HighLevelKpiDashboardModuleProps {
   corridors: Corridor[];
@@ -59,6 +61,7 @@ export const HighLevelKpiDashboardModule: React.FC<HighLevelKpiDashboardModulePr
     'HEALTH' | 'TURNAROUND' | 'GANGS' | 'SAFETY' | null
   >(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showCorridorComparison, setShowCorridorComparison] = useState(false);
 
   // ---------------------------------------------------------------------------
   // 1. DATA COMPUTATION FROM EXISTING SERVICES & STORES
@@ -292,7 +295,32 @@ export const HighLevelKpiDashboardModule: React.FC<HighLevelKpiDashboardModulePr
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            id="toggle-corridor-efficiency-comparison-btn"
+            onClick={() => {
+              railwayAudio.playBeep(780, 0.03);
+              setShowCorridorComparison(!showCorridorComparison);
+            }}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${
+              showCorridorComparison
+                ? 'bg-sky-600 text-white border-sky-400 ring-1 ring-sky-300 shadow-md'
+                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700/80 hover:text-white'
+            }`}
+            title="Toggle side-by-side grouped bar chart comparing Network Health Scores and Maintenance Turnaround Times across corridors"
+          >
+            <ArrowRightLeft className={`w-3.5 h-3.5 ${showCorridorComparison ? 'text-white' : 'text-sky-400'}`} />
+            <span>Corridor Efficiency Comparison</span>
+            <span
+              className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${
+                showCorridorComparison ? 'bg-sky-800 text-sky-100 font-black' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {showCorridorComparison ? 'ACTIVE' : 'OFF'}
+            </span>
+          </button>
+
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
@@ -607,6 +635,23 @@ export const HighLevelKpiDashboardModule: React.FC<HighLevelKpiDashboardModulePr
           </div>
         </div>
       </div>
+
+      {/* ==================================================================== */}
+      {/* CORRIDOR EFFICIENCY COMPARISON (GROUPED BAR CHART FOR HEALTH & TURNAROUND) */}
+      {/* ==================================================================== */}
+      {showCorridorComparison && (
+        <CorridorEfficiencyComparison
+          corridors={corridors}
+          blocks={blocks}
+          defects={defects}
+          validation={validation}
+          onNavigate={onNavigate}
+          onClose={() => {
+            railwayAudio.playBeep(650, 0.02);
+            setShowCorridorComparison(false);
+          }}
+        />
+      )}
 
       {/* ==================================================================== */}
       {/* EXPANDED INTERACTIVE INSPECTION MODAL FOR ANY SELECTED KPI */}

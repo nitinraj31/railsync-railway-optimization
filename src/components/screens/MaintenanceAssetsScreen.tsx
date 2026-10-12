@@ -11,8 +11,10 @@ import {
   Zap,
   GitFork,
   ArrowRight,
+  Activity,
 } from 'lucide-react';
 import { Asset, MaintenanceTask, DepartmentType, PriorityLevel } from '../../types';
+import { PredictiveAssetHealthChart } from '../predictive/PredictiveAssetHealthChart';
 
 interface MaintenanceAssetsScreenProps {
   assets: Asset[];
@@ -25,7 +27,7 @@ export const MaintenanceAssetsScreen: React.FC<MaintenanceAssetsScreenProps> = (
   tasks,
   onNavigateToBlockTimeline,
 }) => {
-  const [activeTab, setActiveTab] = useState<'ASSETS' | 'TASKS'>('ASSETS');
+  const [activeTab, setActiveTab] = useState<'ASSETS' | 'TASKS' | 'PREDICTIVE_DECAY'>('ASSETS');
 
   // Filters
   const [filterDept, setFilterDept] = useState<string>('ALL');
@@ -104,11 +106,35 @@ export const MaintenanceAssetsScreen: React.FC<MaintenanceAssetsScreenProps> = (
             >
               TAB 2: TASKS (60)
             </button>
+            <button
+              id="tab-predictive-asset-health"
+              onClick={() => setActiveTab('PREDICTIVE_DECAY')}
+              className={`px-4 py-1.5 rounded-md text-xs font-mono font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === 'PREDICTIVE_DECAY'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5 text-sky-400" />
+              <span>TAB 3: PREDICTIVE HEALTH (12M)</span>
+            </button>
           </div>
         </div>
       </div>
 
-      {/* FILTER BAR */}
+      {/* SUB-VIEW CONTENT */}
+      {activeTab === 'PREDICTIVE_DECAY' ? (
+        <PredictiveAssetHealthChart
+          assets={assets}
+          onNavigate={(screen, params) => {
+            if (screen === 'block_timeline') {
+              onNavigateToBlockTimeline();
+            }
+          }}
+        />
+      ) : (
+        <>
+          {/* FILTER BAR */}
       <div className="bg-[#0a1020] p-4 rounded-xl border border-sky-950/80 shadow-inner flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2 flex-1 max-w-sm">
           <div className="relative w-full">
@@ -315,6 +341,8 @@ export const MaintenanceAssetsScreen: React.FC<MaintenanceAssetsScreenProps> = (
             </table>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

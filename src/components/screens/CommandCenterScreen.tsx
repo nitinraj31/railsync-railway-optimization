@@ -61,6 +61,7 @@ import { ValidationResult, Corridor, OptimizedBlock, BlockRequest, Defect, Asset
 import { mockStore } from '../../services/api';
 import { CommandCenterMapPreview } from '../common/CommandCenterMapPreview';
 import { PredictiveMaintenancePanel } from '../predictive/PredictiveMaintenancePanel';
+import { PredictiveAssetHealthChart } from '../predictive/PredictiveAssetHealthChart';
 import { CorridorPredictiveHealthScore } from '../predictive/CorridorPredictiveHealthScore';
 import { CrewFatigueTopologyMap } from '../predictive/CrewFatigueTopologyMap';
 import { PredictiveRiskAlertBanner } from '../predictive/PredictiveRiskAlertBanner';
@@ -1900,6 +1901,13 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
         defects={defects}
         onNavigate={onNavigate}
         onRefreshData={onRefreshData}
+      />
+
+      {/* 12-MONTH PREDICTIVE ASSET HEALTH DECAY CURVE & INTERVAL FORECASTING */}
+      <PredictiveAssetHealthChart
+        assets={assets}
+        corridors={corridors}
+        onNavigate={onNavigate}
       />
 
       {/* RISK PREDICTION & FUTURE CONFLICT FORECASTING SECTION */}

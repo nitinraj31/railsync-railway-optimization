@@ -31,6 +31,7 @@ import {
 import { Corridor, ManpowerGang, MachineryResource, DepartmentType } from '../../types';
 import { mockStore } from '../../services/api';
 import { railwayAudio } from '../../services/railwayAudio';
+import { GangDeploymentTimelineGantt } from './GangDeploymentTimelineGantt';
 
 interface ResourceAllocationHeatmapModuleProps {
   corridors: Corridor[];
@@ -83,6 +84,7 @@ export const ResourceAllocationHeatmapModule: React.FC<ResourceAllocationHeatmap
   // ---------------------------------------------------------------------------
   // STATE MANAGEMENT
   // ---------------------------------------------------------------------------
+  const [activeModuleTab, setActiveModuleTab] = useState<'HEATMAP' | 'TIMELINE'>('HEATMAP');
   const [activeShift, setActiveShift] = useState<ShiftFilter>('DAY_SHIFT');
   const [resourceView, setResourceView] = useState<ResourceViewType>('ALL_RESOURCES');
   const [filterUnderUtilizedOnly, setFilterUnderUtilizedOnly] = useState<boolean>(false);
@@ -532,89 +534,142 @@ export const ResourceAllocationHeatmapModule: React.FC<ResourceAllocationHeatmap
           </div>
         </div>
 
-        {/* CONTROLS BAR: SHIFT, VIEW, & UNDER-UTILIZED TOGGLE */}
+        {/* CONTROLS BAR: TABS, SHIFT, VIEW, & UNDER-UTILIZED TOGGLE */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Shift Filter */}
-          <div className="bg-slate-900 border border-slate-800 rounded-lg p-0.5 flex items-center text-[11px] font-mono">
+          {/* Top-Level Module Tab Switcher */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-1 flex items-center font-mono text-xs">
             <button
+              type="button"
+              id="tab-allocation-heatmap"
               onClick={() => {
-                railwayAudio.playBeep(700, 0.02);
-                setActiveShift('DAY_SHIFT');
+                railwayAudio.playBeep(750, 0.02);
+                setActiveModuleTab('HEATMAP');
               }}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                activeShift === 'DAY_SHIFT'
-                  ? 'bg-sky-700 text-white font-bold shadow'
+              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                activeModuleTab === 'HEATMAP'
+                  ? 'bg-sky-600 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Day
+              <Layers className="w-3.5 h-3.5" />
+              <span>Allocation Heatmap</span>
             </button>
+
             <button
+              type="button"
+              id="tab-deployment-timeline"
               onClick={() => {
-                railwayAudio.playBeep(700, 0.02);
-                setActiveShift('AFTERNOON_SHIFT');
+                railwayAudio.playBeep(750, 0.02);
+                setActiveModuleTab('TIMELINE');
               }}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                activeShift === 'AFTERNOON_SHIFT'
-                  ? 'bg-sky-700 text-white font-bold shadow'
+              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                activeModuleTab === 'TIMELINE'
+                  ? 'bg-sky-600 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Afternoon
-            </button>
-            <button
-              onClick={() => {
-                railwayAudio.playBeep(700, 0.02);
-                setActiveShift('NIGHT_MEGA_BLOCK');
-              }}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                activeShift === 'NIGHT_MEGA_BLOCK'
-                  ? 'bg-purple-700 text-white font-bold shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Night Mega
-            </button>
-            <button
-              onClick={() => {
-                railwayAudio.playBeep(700, 0.02);
-                setActiveShift('ALL');
-              }}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                activeShift === 'ALL'
-                  ? 'bg-slate-700 text-white font-bold shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              All Shifts
+              <Clock className="w-3.5 h-3.5" />
+              <span>Deployment Timeline</span>
+              <span className="px-1.5 py-0.2 rounded text-[9px] bg-rose-950 text-rose-300 border border-rose-800/80 font-mono">
+                FATIGUE
+              </span>
             </button>
           </div>
 
-          {/* Under-Utilized Only Toggle Filter */}
-          <button
-            onClick={() => {
-              railwayAudio.playBeep(800, 0.03);
-              setFilterUnderUtilizedOnly(!filterUnderUtilizedOnly);
-            }}
-            className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${
-              filterUnderUtilizedOnly
-                ? 'bg-sky-900 text-sky-100 border-sky-500 ring-1 ring-sky-400'
-                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700/80'
-            }`}
-            title="Filter corridors and rosters to show only under-utilized maintenance gangs for reassignment"
-          >
-            <Filter className={`w-3.5 h-3.5 ${filterUnderUtilizedOnly ? 'text-sky-300' : 'text-slate-400'}`} />
-            <span>Under-Utilized Gangs Only</span>
-            {networkResourceSummary.underUtilizedCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-sky-500 text-slate-950 font-black">
-                {networkResourceSummary.underUtilizedCount}
-              </span>
-            )}
-          </button>
+          {activeModuleTab === 'HEATMAP' && (
+            <>
+              {/* Shift Filter */}
+              <div className="bg-slate-900 border border-slate-800 rounded-lg p-0.5 flex items-center text-[11px] font-mono">
+                <button
+                  onClick={() => {
+                    railwayAudio.playBeep(700, 0.02);
+                    setActiveShift('DAY_SHIFT');
+                  }}
+                  className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                    activeShift === 'DAY_SHIFT'
+                      ? 'bg-sky-700 text-white font-bold shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Day
+                </button>
+                <button
+                  onClick={() => {
+                    railwayAudio.playBeep(700, 0.02);
+                    setActiveShift('AFTERNOON_SHIFT');
+                  }}
+                  className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                    activeShift === 'AFTERNOON_SHIFT'
+                      ? 'bg-sky-700 text-white font-bold shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Afternoon
+                </button>
+                <button
+                  onClick={() => {
+                    railwayAudio.playBeep(700, 0.02);
+                    setActiveShift('NIGHT_MEGA_BLOCK');
+                  }}
+                  className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                    activeShift === 'NIGHT_MEGA_BLOCK'
+                      ? 'bg-purple-700 text-white font-bold shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Night Mega
+                </button>
+                <button
+                  onClick={() => {
+                    railwayAudio.playBeep(700, 0.02);
+                    setActiveShift('ALL');
+                  }}
+                  className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                    activeShift === 'ALL'
+                      ? 'bg-slate-700 text-white font-bold shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  All Shifts
+                </button>
+              </div>
+
+              {/* Under-Utilized Only Toggle Filter */}
+              <button
+                onClick={() => {
+                  railwayAudio.playBeep(800, 0.03);
+                  setFilterUnderUtilizedOnly(!filterUnderUtilizedOnly);
+                }}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${
+                  filterUnderUtilizedOnly
+                    ? 'bg-sky-900 text-sky-100 border-sky-500 ring-1 ring-sky-400'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700/80'
+                }`}
+                title="Filter corridors and rosters to show only under-utilized maintenance gangs for reassignment"
+              >
+                <Filter className={`w-3.5 h-3.5 ${filterUnderUtilizedOnly ? 'text-sky-300' : 'text-slate-400'}`} />
+                <span>Under-Utilized Gangs Only</span>
+                {networkResourceSummary.underUtilizedCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-sky-500 text-slate-950 font-black">
+                    {networkResourceSummary.underUtilizedCount}
+                  </span>
+                )}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* QUICK METRICS RIBBON */}
+      {/* MODULE VIEW CONTENT: HEATMAP MATRIX VS DEPLOYMENT TIMELINE GANTT */}
+      {activeModuleTab === 'TIMELINE' ? (
+        <GangDeploymentTimelineGantt
+          corridors={corridors}
+          onReassignGang={handleOpenReassignModal}
+          onRefreshData={onRefreshData}
+        />
+      ) : (
+        <>
+          {/* QUICK METRICS RIBBON */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
         <div className="bg-[#0b162f] border border-slate-800/80 rounded-xl p-2.5 font-mono">
           <div className="text-[10px] text-slate-400 uppercase flex items-center justify-between">
@@ -943,6 +998,8 @@ export const ResourceAllocationHeatmapModule: React.FC<ResourceAllocationHeatmap
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* ==================================================================== */}
       {/* 3. REASSIGNMENT MODAL DIALOG */}
