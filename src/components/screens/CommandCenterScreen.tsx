@@ -70,6 +70,7 @@ import { CorridorDigitalTwin } from '../digitaltwin/CorridorDigitalTwin';
 import { CorridorRealtimeLoadCard } from '../corridor/CorridorRealtimeLoadCard';
 import { NetworkResilienceCard } from '../resilience/NetworkResilienceCard';
 import { NetworkHealthSummarySection } from '../corridor/NetworkHealthSummarySection';
+import { ResourceAllocationHeatmapModule } from '../corridor/ResourceAllocationHeatmapModule';
 import { FleetHealthHeatmap } from '../fleet/FleetHealthHeatmap';
 import { ElectricalGridHealth } from '../electrical/ElectricalGridHealth';
 import { DepartmentOperationsHub } from '../departments/DepartmentOperationsHub';
@@ -1142,6 +1143,13 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
 
       {/* PREDICTED CREW FATIGUE HOTSPOTS & CORRIDOR TOPOLOGY MAP */}
       <CrewFatigueTopologyMap
+        corridors={corridors}
+        onNavigate={onNavigate}
+        onRefreshData={onRefreshData}
+      />
+
+      {/* RESOURCE ALLOCATION HEATMAP MODULE (MANPOWER & MACHINERY MATRIX & GANG REASSIGNMENT) */}
+      <ResourceAllocationHeatmapModule
         corridors={corridors}
         onNavigate={onNavigate}
         onRefreshData={onRefreshData}
