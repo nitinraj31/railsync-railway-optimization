@@ -32,6 +32,7 @@ import {
 import { ValidationResult, Corridor, OptimizedBlock, BlockRequest, Defect, Asset, ManpowerGang } from '../../types';
 import { mockStore } from '../../services/api';
 import { railwayAudio } from '../../services/railwayAudio';
+import { KpiTrendSparklineTooltip, DailyTrendPoint } from './KpiTrendSparklineTooltip';
 
 interface HighLevelKpiDashboardModuleProps {
   corridors: Corridor[];
@@ -170,6 +171,79 @@ export const HighLevelKpiDashboardModule: React.FC<HighLevelKpiDashboardModulePr
     };
   }, [validation, blocks]);
 
+  // 7-day trend breakdown data for Network Health Score
+  const healthTrendPoints = useMemo<DailyTrendPoint[]>(() => {
+    const cur = networkHealthMetrics.score;
+    const offsets = [-3.4, -4.1, -2.6, -2.2, -1.0, -0.4, 0];
+    const notes = [
+      'Monsoon speed restriction cleared on C001 (Section 12)',
+      'C002 Track tamping machine run completed, +15 km/h buffer',
+      'Night maintenance block cleared, geometry realigned',
+      'Peak freight throughput, minor turnout variance managed',
+      'Turnout switch motor calibrated & sanctioned',
+      'OHE traction tension confirmed, C003 headway cleared',
+      'Optimal capacity across all 4 corridors, deterministic flow',
+    ];
+    const today = new Date();
+    return offsets.map((off, i) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() - (6 - i));
+      const val = Number(Math.max(65, Math.min(99.5, cur + off)).toFixed(1));
+      const isToday = i === 6;
+      const prevVal = i > 0 ? Number(Math.max(65, Math.min(99.5, cur + offsets[i - 1])).toFixed(1)) : val;
+      const delta = i > 0 ? Number((val - prevVal).toFixed(1)) : 0;
+      const dayStr = isToday ? 'TODAY' : `D-${6 - i}`;
+      const dateFormatted = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+      return {
+        dayOffset: i - 6,
+        dayName: dayStr,
+        dateFormatted: `${dateFormatted}${isToday ? ' (Today)' : ''}`,
+        isToday,
+        value: val,
+        deltaVsPrev: delta,
+        statusNote: notes[i],
+      };
+    });
+  }, [networkHealthMetrics.score]);
+
+  // 7-day trend breakdown data for Safety Compliance Percentage
+  const safetyTrendPoints = useMemo<DailyTrendPoint[]>(() => {
+    const cur = safetyComplianceMetrics.percentage;
+    const isSafe = safetyComplianceMetrics.isSafe;
+    const baseOffsets = isSafe
+      ? [-3.6, -4.0, -2.5, -1.8, -1.1, -0.6, 0]
+      : [-1.4, -2.5, -0.6, -2.8, -1.8, -1.2, 0];
+    const notes = [
+      'G&SR Rule 4.13 Sectional headway spacing audited',
+      'Interlocking overlap buffers verified across C002-C003',
+      'Crew fatigue limits & 8-hour shift ceiling strictly enforced',
+      'TRD 25kV traction power block isolation logs cleared',
+      'Station yard shunting authority permits verified',
+      'Statutory 7-point pre-dispatch sign-offs registered',
+      isSafe ? 'Zero critical clashes: 100% statutory clearance' : 'Review required: active clashes identified',
+    ];
+    const today = new Date();
+    return baseOffsets.map((off, i) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() - (6 - i));
+      const val = Number(Math.max(70, Math.min(100.0, cur + off)).toFixed(1));
+      const isToday = i === 6;
+      const prevVal = i > 0 ? Number(Math.max(70, Math.min(100.0, cur + baseOffsets[i - 1])).toFixed(1)) : val;
+      const delta = i > 0 ? Number((val - prevVal).toFixed(1)) : 0;
+      const dayStr = isToday ? 'TODAY' : `D-${6 - i}`;
+      const dateFormatted = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+      return {
+        dayOffset: i - 6,
+        dayName: dayStr,
+        dateFormatted: `${dateFormatted}${isToday ? ' (Today)' : ''}`,
+        isToday,
+        value: val,
+        deltaVsPrev: delta,
+        statusNote: notes[i],
+      };
+    });
+  }, [safetyComplianceMetrics.percentage, safetyComplianceMetrics.isSafe]);
+
   const handleRefresh = async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
@@ -250,10 +324,18 @@ export const HighLevelKpiDashboardModule: React.FC<HighLevelKpiDashboardModulePr
                 <Gauge className="w-3.5 h-3.5 text-sky-400" />
                 <span>Network Health Score</span>
               </span>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700/60 flex items-center gap-1">
-                <TrendingUp className="w-3 h-3 text-emerald-400" />
-                <span>{networkHealthMetrics.trend}</span>
-              </span>
+              <KpiTrendSparklineTooltip
+                id="kpi-network-health"
+                metricLabel="Network Health Score"
+                currentValue={networkHealthMetrics.score}
+                unit="%"
+                benchmarkValue={85}
+                benchmarkLabel="Optimal Target"
+                colorScheme="sky"
+                trendBadgeText={networkHealthMetrics.trend}
+                trendDirection="up"
+                dataPoints={healthTrendPoints}
+              />
             </div>
 
             {/* Hero Value */}
@@ -459,25 +541,22 @@ export const HighLevelKpiDashboardModule: React.FC<HighLevelKpiDashboardModulePr
                 )}
                 <span>Safety Compliance %</span>
               </span>
-              <span
-                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${
+              <KpiTrendSparklineTooltip
+                id="kpi-safety-compliance"
+                metricLabel="Safety Compliance %"
+                currentValue={safetyComplianceMetrics.percentage}
+                unit="%"
+                benchmarkValue={98}
+                benchmarkLabel="Statutory Minimum"
+                colorScheme="emerald"
+                trendBadgeText={
                   safetyComplianceMetrics.isSafe
-                    ? 'bg-emerald-950 text-emerald-300 border-emerald-700/60'
-                    : 'bg-rose-950 text-rose-300 border-rose-700/60 animate-pulse'
-                }`}
-              >
-                {safetyComplianceMetrics.isSafe ? (
-                  <>
-                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                    <span>LOCKED PASS</span>
-                  </>
-                ) : (
-                  <>
-                    <AlertTriangle className="w-3 h-3 text-rose-400" />
-                    <span>{safetyComplianceMetrics.conflictsCount} CLASHES</span>
-                  </>
-                )}
-              </span>
+                    ? 'LOCKED PASS'
+                    : `${safetyComplianceMetrics.conflictsCount} CLASHES`
+                }
+                trendDirection={safetyComplianceMetrics.isSafe ? 'up' : 'down'}
+                dataPoints={safetyTrendPoints}
+              />
             </div>
 
             {/* Hero Value */}

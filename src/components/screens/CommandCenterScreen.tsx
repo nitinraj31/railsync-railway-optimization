@@ -665,6 +665,21 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
+            id="jump-to-executive-kpis-btn"
+            onClick={() => {
+              const el = document.getElementById('high-level-kpi-dashboard-module');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-emerald-950 via-slate-900 to-sky-950 hover:border-emerald-400/80 border border-emerald-500/50 text-emerald-200 text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-emerald-950/60 transition-all font-mono group cursor-pointer"
+            title="Jump to Executive Operational KPI Command Dashboard"
+          >
+            <Activity className="w-4 h-4 text-emerald-400 group-hover:animate-pulse" />
+            <span>Executive KPIs</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] bg-emerald-500/20 text-emerald-200 border border-emerald-400/40 uppercase font-bold">
+              4 Core
+            </span>
+          </button>
+          <button
             id="jump-to-network-map-btn"
             onClick={() => {
               const el = document.getElementById('network-map-preview-module');
@@ -927,6 +942,18 @@ export const CommandCenterScreen: React.FC<CommandCenterProps> = ({
           </button>
         </div>
       </div>
+
+      {/* High-Level Operational KPI Dashboard Module */}
+      <HighLevelKpiDashboardModule
+        corridors={corridors}
+        blocks={blocks}
+        requests={requests}
+        defects={defects}
+        assets={assets}
+        validation={validation}
+        onNavigate={onNavigate}
+        onRefreshData={onRefreshData}
+      />
 
       {/* 9 KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2.5">
