@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   LineChart,
   Line,
@@ -35,8 +35,13 @@ import {
   Search,
   Banknote,
   Coins,
+  Flame,
+  Send,
+  X,
+  FileText,
+  Radio,
 } from 'lucide-react';
-import { Asset, Corridor, DepartmentType } from '../../types';
+import { Asset, Corridor, DepartmentType, OptimizedBlock, BlockRequest } from '../../types';
 import { mockStore } from '../../services/api';
 import { railwayAudio } from '../../services/railwayAudio';
 
@@ -121,6 +126,29 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
   const [showMitigatedCurve, setShowMitigatedCurve] = useState<boolean>(true);
   const [trafficTonnageMultiplier, setTrafficTonnageMultiplier] = useState<number>(1.0); // 1.0 standard, 1.25 peak, 0.8 low
   const [selectedCategoryTab, setSelectedCategoryTab] = useState<'ALL' | 'BRIDGES' | 'TRACKS' | 'TURNOUTS' | 'CATENARY'>('ALL');
+
+  // Emergency Immediate Intervention State
+  const [isImmediateInterventionActive, setIsImmediateInterventionActive] = useState<boolean>(false);
+  const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState<boolean>(false);
+  const [emergencyDate, setEmergencyDate] = useState<string>('2026-10-17');
+  const [emergencyWindowSlot, setEmergencyWindowSlot] = useState<'NIGHT_MEGA' | 'IMMEDIATE_CURFEW' | 'EARLY_MORNING'>('NIGHT_MEGA');
+  const [emergencyDurationMinutes, setEmergencyDurationMinutes] = useState<number>(240);
+  const [emergencyTaskTitle, setEmergencyTaskTitle] = useState<string>('');
+  const [emergencySupervisor, setEmergencySupervisor] = useState<string>('SSE (P-Way / Track) Ramesh Chand');
+  const [emergencyImposeTsr, setEmergencyImposeTsr] = useState<boolean>(true);
+  const [emergencyTsrSpeedKmph, setEmergencyTsrSpeedKmph] = useState<number>(30);
+  const [emergencyNotes, setEmergencyNotes] = useState<string>('');
+  const [isSubmittingEmergency, setIsSubmittingEmergency] = useState<boolean>(false);
+  const [submittedEmergencyBlock, setSubmittedEmergencyBlock] = useState<{
+    requestId: string;
+    blockId: string;
+    assetId: string;
+    assetName: string;
+    corridorId: string;
+    date: string;
+    timeWindow: string;
+    durationMinutes: number;
+  } | null>(null);
 
   // Month names for next 12 months starting from current month (Oct 2026)
   const monthLabels = useMemo(() => {
@@ -397,6 +425,108 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
     }).sort((a, b) => a.monthsTo70 - b.monthsTo70);
   }, [criticalAssets, trafficTonnageMultiplier, monthLabels, alertThreshold]);
 
+  // Synchronize Emergency Form with selected asset failure risk metadata
+  useEffect(() => {
+    if (selectedAnalysis) {
+      setEmergencyTaskTitle(selectedAnalysis.recommendedInterventionType);
+      setEmergencyDurationMinutes(Math.round(selectedAnalysis.recommendedMaintenanceWindowHours * 60));
+      setEmergencyNotes(
+        `Immediate track possession requisitioned under Indian Railways General & Subsidiary Rules (G&SR) 4.13. Current Health Index: ${selectedAnalysis.initialHealth}% against Alert Threshold ${alertThreshold}%. Full 25kV OHE catenary power shutdown confirmed with Bahadurgarh TSS.`
+      );
+    }
+  }, [selectedAnalysis?.asset.id, alertThreshold]);
+
+  // Submit Emergency Maintenance Block Request
+  const handleEmergencyBlockSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!selectedAnalysis) return;
+
+    setIsSubmittingEmergency(true);
+    railwayAudio.playBeep(880, 0.05);
+
+    const startTime = emergencyWindowSlot === 'NIGHT_MEGA' ? '23:30' : emergencyWindowSlot === 'IMMEDIATE_CURFEW' ? '14:00' : '04:30';
+    const endTime = emergencyWindowSlot === 'NIGHT_MEGA' ? '03:30' : emergencyWindowSlot === 'IMMEDIATE_CURFEW' ? '17:30' : '08:00';
+
+    try {
+      // 1. Submit official BlockRequest to mockStore
+      const newRequest = mockStore.addBlockRequest({
+        department: selectedAnalysis.asset.department || 'ENGINEERING',
+        requester: `${emergencySupervisor} (Emergency Dispatch)`,
+        requesterRole: 'ENGINEERING_OFFICER',
+        assetId: selectedAnalysis.asset.id,
+        assetType: selectedAnalysis.asset.type || 'INFRASTRUCTURE',
+        corridorId: selectedAnalysis.asset.corridorId,
+        taskType: emergencyTaskTitle || selectedAnalysis.recommendedInterventionType,
+        priority: 'CRITICAL',
+        requestedDate: emergencyDate,
+        preferredStartTime: startTime,
+        preferredEndTime: endTime,
+        requiredDurationMinutes: emergencyDurationMinutes,
+        description: `[EMERGENCY DIRECTIVE - G&SR 4.13] Asset Health: ${selectedAnalysis.initialHealth}%, Intervention Floor: ${alertThreshold}%. Wear: ${selectedAnalysis.monthlyDecayRate}%/mo. ${emergencyNotes}`,
+        operationalConstraints: `TSR Imposed: ${emergencyImposeTsr ? `${emergencyTsrSpeedKmph} km/h` : 'None'}. Full track possession & OHE isolation required.`,
+        status: 'VALIDATED',
+      });
+
+      // 2. Add as scheduled emergency block directly to optimizedBlocks
+      const newBlockId = `BLK-EMG-${selectedAnalysis.asset.id}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const newBlock: OptimizedBlock = {
+        blockId: newBlockId,
+        taskId: `TSK-EMG-${selectedAnalysis.asset.id}`,
+        requestId: newRequest.requestId,
+        department: selectedAnalysis.asset.department || 'ENGINEERING',
+        assetId: selectedAnalysis.asset.id,
+        corridorId: selectedAnalysis.asset.corridorId,
+        section: selectedAnalysis.asset.section || 'KM 14/0 to 22/0',
+        date: emergencyDate,
+        startTime,
+        endTime,
+        durationMinutes: emergencyDurationMinutes,
+        priority: 'CRITICAL',
+        status: 'SCHEDULED',
+        validationStatus: 'VALID',
+        hasConflict: false,
+        explainability: {
+          whyThisSlot: [
+            `Immediate emergency block created via Predictive Asset Health alert at ${alertThreshold}% threshold`,
+            `Direct statutory sanction under Indian Railways G&SR Rule 4.13`,
+            `Assigned ${emergencySupervisor} with zero headway conflict during night curfew`,
+          ],
+          optimizationFactors: {
+            priorityScore: 99,
+            assetAvailability: 'Asset isolated under emergency safety curfew',
+            corridorAvailability: 'Corridor window secured',
+            trainCompatibility: 'Freight trains held at loop siding',
+            constraintCompatibility: 'Full catenary isolation active',
+            operationalImpact: 'Zero passenger train delay during midnight window',
+          },
+          alternateEvaluatedCount: 2,
+          disruptionAvoidanceMinutes: 60,
+          constraintCheckSummary: 'Zero passenger train delay during night curfew; statutory G&SR 4.13 priority isolation verified',
+        },
+      };
+
+      mockStore.addOptimizedBlock(newBlock);
+
+      // Play sound
+      railwayAudio.playBeep(940, 0.08);
+
+      setSubmittedEmergencyBlock({
+        requestId: newRequest.requestId,
+        blockId: newBlockId,
+        assetId: selectedAnalysis.asset.id,
+        assetName: selectedAnalysis.asset.name,
+        corridorId: selectedAnalysis.asset.corridorId,
+        date: emergencyDate,
+        timeWindow: `${startTime} – ${endTime}`,
+        durationMinutes: emergencyDurationMinutes,
+      });
+    } catch (err) {
+      console.error('Failed to submit emergency block request:', err);
+    } finally {
+      setIsSubmittingEmergency(false);
+    }
+  };
+
   // Custom Chart Tooltip
   const CustomForecastTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -670,7 +800,7 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
           </div>
 
           {/* Quick Preset Buttons */}
-          <div className="flex items-center gap-1.5 font-mono text-[10px] shrink-0 self-start lg:self-center">
+          <div className="flex items-center gap-2 font-mono text-[10px] shrink-0 self-start lg:self-center flex-wrap">
             <span className="text-slate-400 mr-1 hidden sm:inline">Presets:</span>
             <button
               type="button"
@@ -720,36 +850,155 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
           </div>
         </div>
 
-        {/* Range Slider Track */}
-        <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-[10px] font-mono text-rose-400 shrink-0 font-bold">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>Critical Floor (50%)</span>
+        {/* Range Slider Track & Schedule Immediate Intervention Toggle Row (Side-by-side) */}
+        <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-col xl:flex-row xl:items-center gap-4">
+          {/* Alert Threshold Slider */}
+          <div className="flex-1 flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-[10px] font-mono text-rose-400 shrink-0 font-bold">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>Critical Floor (50%)</span>
+            </div>
+
+            <div className="relative flex-1 flex items-center">
+              <input
+                type="range"
+                id="input-alert-threshold-slider"
+                data-testid="input-alert-threshold-slider"
+                min={50}
+                max={85}
+                step={1}
+                value={alertThreshold}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  railwayAudio.playBeep(560 + (val - 50) * 12, 0.012);
+                  setAlertThreshold(val);
+                }}
+                className="w-full h-2.5 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-amber-400 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500/70"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-400 shrink-0 font-bold">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Conservative (85%)</span>
+            </div>
           </div>
 
-          <div className="relative flex-1 flex items-center">
-            <input
-              type="range"
-              id="input-alert-threshold-slider"
-              data-testid="input-alert-threshold-slider"
-              min={50}
-              max={85}
-              step={1}
-              value={alertThreshold}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
-                railwayAudio.playBeep(560 + (val - 50) * 12, 0.012);
-                setAlertThreshold(val);
+          {/* Divider between slider and toggle */}
+          <div className="hidden xl:block h-8 w-px bg-slate-700/80 shrink-0" />
+
+          {/* Schedule Immediate Intervention Toggle - Placed directly next to slider */}
+          <div className="flex items-center justify-between xl:justify-start gap-3.5 shrink-0 bg-[#060e22] border border-rose-800/70 rounded-xl px-3.5 py-2 shadow-lg">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`p-1.5 rounded-lg transition-colors ${
+                  isImmediateInterventionActive
+                    ? 'bg-rose-600 text-white animate-pulse shadow-md shadow-rose-950'
+                    : 'bg-slate-900 text-rose-400 border border-slate-800'
+                }`}
+              >
+                <Zap className="w-4 h-4" />
+              </div>
+              <div className="text-left font-mono">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-white uppercase tracking-tight">
+                    Schedule Immediate Intervention
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-black ${
+                      isImmediateInterventionActive
+                        ? 'bg-rose-950 text-rose-200 border border-rose-500'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {isImmediateInterventionActive ? 'ENABLED' : 'OFF'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  G&amp;SR 4.13 Emergency Maintenance Block Form
+                </p>
+              </div>
+            </div>
+
+            {/* Toggle Switch Component */}
+            <button
+              type="button"
+              id="toggle-schedule-immediate-intervention"
+              data-testid="toggle-schedule-immediate-intervention"
+              role="switch"
+              aria-checked={isImmediateInterventionActive}
+              onClick={() => {
+                const nextState = !isImmediateInterventionActive;
+                if (nextState) {
+                  railwayAudio.playBeep(920, 0.05);
+                } else {
+                  railwayAudio.playBeep(640, 0.03);
+                }
+                setIsImmediateInterventionActive(nextState);
+                setIsEmergencyModalOpen(nextState);
+                if (!nextState) {
+                  setSubmittedEmergencyBlock(null);
+                }
               }}
-              className="w-full h-2.5 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-amber-400 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500/70"
-            />
-          </div>
-
-          <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-400 shrink-0 font-bold">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Conservative (85%)</span>
+              className={`relative inline-flex h-6 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                isImmediateInterventionActive ? 'bg-rose-600 shadow-lg shadow-rose-950/70' : 'bg-slate-700'
+              }`}
+              title="Toggle immediate simulated Emergency Maintenance Block request form populated with current asset failure risk metadata"
+            >
+              <span className="sr-only">Schedule Immediate Intervention</span>
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                  isImmediateInterventionActive ? 'translate-x-6' : 'translate-x-0'
+                }`}
+              />
+            </button>
           </div>
         </div>
+
+        {/* Active Emergency Directive Status Alert Banner */}
+        {isImmediateInterventionActive && (
+          <div className="mt-3 p-3 rounded-xl bg-gradient-to-r from-rose-950/95 via-rose-900/80 to-[#180812] border border-rose-600/90 text-rose-100 text-xs font-mono flex items-center justify-between shadow-lg animate-in fade-in flex-wrap gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1 rounded-md bg-rose-600 text-white animate-pulse">
+                <Flame className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-bold text-white uppercase tracking-wide">
+                  Immediate Emergency Intervention Active:
+                </span>{' '}
+                <span className="text-rose-200">
+                  Automated requisition triggered for {selectedAnalysis?.asset.id} ({selectedAnalysis?.asset.name}) at {alertThreshold}% alert floor.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  railwayAudio.playBeep(850, 0.03);
+                  setIsEmergencyModalOpen(true);
+                }}
+                className="px-3 py-1 rounded-lg bg-rose-700 hover:bg-rose-600 text-white font-bold text-[11px] shadow-sm cursor-pointer flex items-center gap-1"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Open Request Form</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  railwayAudio.playBeep(640, 0.02);
+                  setIsImmediateInterventionActive(false);
+                  setIsEmergencyModalOpen(false);
+                  setSubmittedEmergencyBlock(null);
+                }}
+                className="px-2 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white text-xs cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {selectedAnalysis && (
@@ -1198,6 +1447,386 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
           </table>
         </div>
       </div>
+
+      {/* ==================================================================== */}
+      {/* SIMULATED EMERGENCY MAINTENANCE BLOCK REQUEST FORM MODAL */}
+      {/* ==================================================================== */}
+      {isEmergencyModalOpen && selectedAnalysis && (
+        <div
+          id="modal-emergency-maintenance-block"
+          data-testid="modal-emergency-maintenance-block"
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-150"
+        >
+          <div className="bg-[#0b1429] border border-rose-600/80 rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Top Banner */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-rose-900/60 bg-gradient-to-r from-rose-950/95 via-rose-900/90 to-[#18091a]">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-rose-600 text-white shadow-lg shadow-rose-950/80 animate-pulse">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white font-mono uppercase tracking-wide">
+                      Emergency Maintenance Block Requisition
+                    </h3>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-black bg-rose-900 text-rose-200 border border-rose-500">
+                      G&amp;SR RULE 4.13 DIRECTIVE
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-rose-300 font-mono">
+                    Auto-populated from real-time asset failure risk metadata &amp; decay trajectory analytics
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  railwayAudio.playBeep(600, 0.02);
+                  setIsEmergencyModalOpen(false);
+                }}
+                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="p-5 overflow-y-auto space-y-4 font-mono text-xs">
+              {/* SUCCESS CONFIRMATION STATE */}
+              {submittedEmergencyBlock ? (
+                <div className="p-6 rounded-xl bg-emerald-950/80 border border-emerald-500 text-emerald-200 space-y-4 text-center">
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center mx-auto text-emerald-300 shadow-xl shadow-emerald-950">
+                    <CheckCircle2 className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-black text-white font-mono tracking-tight uppercase">
+                      Emergency Maintenance Block Sanctioned &amp; Dispatched!
+                    </h4>
+                    <p className="text-xs text-emerald-300 mt-1 max-w-lg mx-auto">
+                      Requisition registered with Central Control. Track possession order and caution notice broadcast under statutory Indian Railways G&amp;SR Rule 4.13.
+                    </p>
+                  </div>
+
+                  <div className="bg-[#071322] p-4 rounded-xl border border-emerald-700/60 text-left grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Request ID:</span>
+                      <span className="font-bold text-sky-400 text-sm">{submittedEmergencyBlock.requestId}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Scheduled Block ID:</span>
+                      <span className="font-bold text-emerald-300 text-sm">{submittedEmergencyBlock.blockId}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Target Date:</span>
+                      <span className="font-bold text-white">{submittedEmergencyBlock.date}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Window &amp; Duration:</span>
+                      <span className="font-bold text-amber-300">
+                        {submittedEmergencyBlock.timeWindow} ({submittedEmergencyBlock.durationMinutes}m)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      id="btn-emergency-view-timeline"
+                      onClick={() => {
+                        railwayAudio.playBeep(880, 0.05);
+                        setIsEmergencyModalOpen(false);
+                        if (onNavigate) {
+                          onNavigate('block_timeline', {
+                            highlightAssetId: submittedEmergencyBlock.assetId,
+                            highlightBlockId: submittedEmergencyBlock.blockId,
+                          });
+                        }
+                      }}
+                      className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-2 shadow-lg shadow-emerald-950/60 cursor-pointer"
+                    >
+                      <Clock className="w-4 h-4" />
+                      <span>Inspect in Block Timeline →</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEmergencyModalOpen(false);
+                        setSubmittedEmergencyBlock(null);
+                      }}
+                      className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold cursor-pointer"
+                    >
+                      Close Requisition
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleEmergencyBlockSubmit} className="space-y-4">
+                  {/* 1. AUTO-POPULATED ASSET RISK METADATA CARD */}
+                  <div className="bg-[#070e1e] p-3.5 rounded-xl border border-rose-900/60 shadow-inner space-y-2.5">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                      <span className="text-[11px] font-bold text-rose-300 uppercase flex items-center gap-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Auto-Populated Asset Failure Risk Telemetry</span>
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-950 text-rose-300 border border-rose-700 animate-pulse">
+                          {selectedAnalysis.initialHealth <= alertThreshold ? 'THRESHOLD BREACH ACTIVE' : 'PRE-FAILURE INTERVENTION'}
+                        </span>
+                        <span className="px-2 py-0.2 rounded text-[9px] font-mono font-bold bg-slate-900 text-amber-300 border border-amber-600/60">
+                          {selectedAnalysis.initialHealth <= alertThreshold
+                            ? '94% Failure Probability'
+                            : `${Math.min(92, Math.max(65, Math.round(70 + (alertThreshold - selectedAnalysis.initialHealth) * 3)))}% Risk Index`}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block uppercase font-semibold">Target Asset &amp; Type:</span>
+                        <span className="font-bold text-white truncate block">{selectedAnalysis.asset.id}</span>
+                        <span className="text-[10px] text-slate-300 block truncate font-medium">{selectedAnalysis.asset.name}</span>
+                        <span className="text-[9px] text-sky-400 block mt-0.5 uppercase tracking-wider">{selectedAnalysis.asset.type}</span>
+                      </div>
+
+                      <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block uppercase font-semibold">Corridor &amp; Section:</span>
+                        <span className="font-bold text-sky-300 truncate block">{selectedAnalysis.asset.corridorId}</span>
+                        <span className="text-[10px] text-slate-400 block truncate">{selectedAnalysis.asset.section}</span>
+                        <span className="text-[9px] text-slate-400 block mt-0.5">Dept: {selectedAnalysis.asset.department}</span>
+                      </div>
+
+                      <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block uppercase font-semibold">Current Health vs Floor:</span>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                          <span
+                            className={`text-base font-black ${
+                              selectedAnalysis.initialHealth <= alertThreshold ? 'text-rose-400' : 'text-amber-400'
+                            }`}
+                          >
+                            {selectedAnalysis.initialHealth}%
+                          </span>
+                          <span className="text-[10px] text-slate-400">/ {alertThreshold}% Trigger</span>
+                        </div>
+                        <span className="text-[9px] text-rose-300 block font-bold">
+                          {selectedAnalysis.initialHealth <= alertThreshold
+                            ? 'Floor Breached!'
+                            : `~${selectedAnalysis.daysUntilThreshold}d to statutory floor`}
+                        </span>
+                      </div>
+
+                      <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-[10px] text-slate-400 block uppercase font-semibold">Wear Acceleration:</span>
+                        <span className="font-bold text-amber-400 mt-0.5 block">
+                          -{selectedAnalysis.monthlyDecayRate}% / mo
+                        </span>
+                        <span className="text-[10px] text-slate-400 block">
+                          Traffic GMT: {trafficTonnageMultiplier}x
+                        </span>
+                        <span className="text-[9px] text-emerald-400 block mt-0.5">
+                          Forecast Date: {selectedAnalysis.breachDateFormatted}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Operational Risk Assessment Banner */}
+                    <div className="bg-rose-950/40 border border-rose-800/60 rounded-lg p-2.5 flex items-center justify-between flex-wrap gap-2 text-[11px]">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span className="text-rose-200">
+                          <strong>Failure Hazard Profile:</strong> Structural fatigue threshold breach risks uncommanded track geometry deflection, bearing settlement, or rail fracture under cyclic dynamic loads.
+                        </span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-rose-900/80 text-white font-mono font-bold text-[10px] border border-rose-600">
+                        RDSO PARA 504 / G&amp;SR 4.13
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 2. EMERGENCY BLOCK SCHEDULING PARAMETERS */}
+                  <div className="bg-[#070e1e] p-3.5 rounded-xl border border-slate-800 space-y-3">
+                    <div className="text-[11px] font-bold text-white uppercase flex items-center gap-1.5 border-b border-slate-800 pb-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Emergency Block Scheduling Parameters</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* Date */}
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-1 uppercase font-semibold">
+                          Requested Date:
+                        </label>
+                        <input
+                          type="date"
+                          value={emergencyDate}
+                          onChange={(e) => setEmergencyDate(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono focus:border-rose-500 focus:outline-none"
+                          required
+                        />
+                      </div>
+
+                      {/* Window Slot */}
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-1 uppercase font-semibold">
+                          Immediate Window Slot:
+                        </label>
+                        <select
+                          value={emergencyWindowSlot}
+                          onChange={(e) => setEmergencyWindowSlot(e.target.value as any)}
+                          className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono focus:border-rose-500 focus:outline-none"
+                        >
+                          <option value="NIGHT_MEGA">Tonight Night Mega Block (23:30 – 03:30)</option>
+                          <option value="IMMEDIATE_CURFEW">Immediate Daylight Curfew (14:00 – 17:30)</option>
+                          <option value="EARLY_MORNING">Tomorrow Early Morning (04:30 – 08:00)</option>
+                        </select>
+                      </div>
+
+                      {/* Duration */}
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-1 uppercase font-semibold">
+                          Duration (Minutes):
+                        </label>
+                        <input
+                          type="number"
+                          min={60}
+                          max={360}
+                          step={15}
+                          value={emergencyDurationMinutes}
+                          onChange={(e) => setEmergencyDurationMinutes(parseInt(e.target.value, 10) || 120)}
+                          className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono focus:border-rose-500 focus:outline-none"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* Task Title */}
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-1 uppercase font-semibold">
+                        Intervention Operation Description:
+                      </label>
+                      <input
+                        type="text"
+                        value={emergencyTaskTitle}
+                        onChange={(e) => setEmergencyTaskTitle(e.target.value)}
+                        placeholder="e.g. Ultrasonic Flaw Testing, Rail Grinding, Girder Camber Jacking..."
+                        className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono focus:border-rose-500 focus:outline-none"
+                        required
+                      />
+                    </div>
+
+                    {/* Resource & Supervisor Allocation */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-1 uppercase font-semibold">
+                          Dispatched Supervisor In-Charge:
+                        </label>
+                        <input
+                          type="text"
+                          value={emergencySupervisor}
+                          onChange={(e) => setEmergencySupervisor(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono focus:border-rose-500 focus:outline-none"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-1 uppercase font-semibold">
+                          Estimated Emergency Mobilization Cost:
+                        </label>
+                        <div className="px-2.5 py-1.5 bg-slate-900/90 border border-slate-700 rounded-lg text-amber-300 font-bold flex items-center justify-between">
+                          <span>₹{selectedAnalysis.estimatedRepairCost.toLocaleString('en-IN')}</span>
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            (₹{(selectedAnalysis.estimatedRepairCost / 100000).toFixed(2)}L)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Statutory Caution Order (TSR) */}
+                    <div className="p-3 bg-amber-950/40 border border-amber-700/60 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer text-amber-200 font-bold">
+                          <input
+                            type="checkbox"
+                            checked={emergencyImposeTsr}
+                            onChange={(e) => setEmergencyImposeTsr(e.target.checked)}
+                            className="rounded accent-amber-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span>Impose Temporary Speed Restriction (TSR) Under G&amp;SR 15.09</span>
+                        </label>
+
+                        {emergencyImposeTsr && (
+                          <div className="flex items-center gap-1.5 text-xs text-amber-300">
+                            <span>Speed Ceiling:</span>
+                            <select
+                              value={emergencyTsrSpeedKmph}
+                              onChange={(e) => setEmergencyTsrSpeedKmph(parseInt(e.target.value, 10))}
+                              className="bg-slate-900 border border-amber-600 rounded px-1.5 py-0.5 text-xs font-bold text-white"
+                            >
+                              <option value="20">20 KM/H</option>
+                              <option value="30">30 KM/H (Standard)</option>
+                              <option value="45">45 KM/H</option>
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-amber-400/90 pl-6 leading-relaxed">
+                        Caution order notice automatically wired to Central Train Control and Section Controller (SCOR).
+                      </p>
+                    </div>
+
+                    {/* Operational Constraints */}
+                    <div>
+                      <label className="text-[10px] text-slate-400 block mb-1 uppercase font-semibold">
+                        Operational Constraints &amp; Safety Protocols:
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={emergencyNotes}
+                        onChange={(e) => setEmergencyNotes(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono focus:border-rose-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Modal Bottom Actions */}
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                    <div className="text-[11px] text-slate-400">
+                      Priority: <span className="font-bold text-rose-400">CRITICAL / EMERGENCY DIRECTIVE</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          railwayAudio.playBeep(620, 0.02);
+                          setIsEmergencyModalOpen(false);
+                          setIsImmediateInterventionActive(false);
+                        }}
+                        className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={isSubmittingEmergency}
+                        id="btn-confirm-emergency-block-submit"
+                        data-testid="btn-confirm-emergency-block-submit"
+                        className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-950/60 cursor-pointer"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>{isSubmittingEmergency ? 'Dispatching...' : 'Submit Emergency Block Request'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
