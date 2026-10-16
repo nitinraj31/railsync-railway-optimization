@@ -33,6 +33,8 @@ import {
   Zap,
   RefreshCw,
   Search,
+  Banknote,
+  Coins,
 } from 'lucide-react';
 import { Asset, Corridor, DepartmentType } from '../../types';
 import { mockStore } from '../../services/api';
@@ -63,13 +65,25 @@ interface CriticalAssetAnalysis {
   initialHealth: number;
   monthlyDecayRate: number;
   forecastPoints: MonthlyHealthForecastPoint[];
-  monthsUntilMandatoryThreshold: number; // to 70%
+  alertThreshold: number;
+  monthsUntilThreshold: number;
+  daysUntilThreshold: number;
+  thresholdBreachedDate: string;
+  thresholdBreachedMonthLabel: string;
+  monthsUntilMandatoryThreshold: number; // for backward compat
   monthsUntilCriticalFloor: number; // to 55%
   recommendedMaintenanceMonth: string;
   recommendedMaintenanceWindowHours: number;
   recommendedInterventionType: string;
   statutoryCode: string;
   urgencyLevel: 'IMMEDIATE' | 'HIGH' | 'PLANNED' | 'MONITORING';
+  // Financial & Repair Cost Telemetry
+  baseRepairCost: number;
+  estimatedRepairCost: number;
+  wearSurchargeAmount: number;
+  wearPenaltyPercent: number;
+  deferredCostPenalty: number;
+  projectedSavingsVsFailure: number;
 }
 
 export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProps> = ({
@@ -101,6 +115,7 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
 
   // Filters & Controls
   const [selectedAssetId, setSelectedAssetId] = useState<string>('A006'); // Girder Bridge Br-104 (Yamuna Link) as default
+  const [alertThreshold, setAlertThreshold] = useState<number>(70); // Real-time Alert Threshold Slider (50% - 85%, default 70%)
   const [filterCorridor, setFilterCorridor] = useState<string>('ALL');
   const [filterDepartment, setFilterDepartment] = useState<'ALL' | DepartmentType>('ALL');
   const [showMitigatedCurve, setShowMitigatedCurve] = useState<boolean>(true);
@@ -125,6 +140,17 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
   // ---------------------------------------------------------------------------
   // DECAY MODEL CALCULATION
   // ---------------------------------------------------------------------------
+  // Calculate baseline repair expenditure based on asset class under Indian Railways cost schedules
+  const getBaseRepairCost = (asset: Asset): number => {
+    const name = asset.name.toLowerCase();
+    const type = asset.type.toLowerCase();
+    if (name.includes('bridge') || type.includes('girder')) return 380000; // Girder bearings, expansion joints, camber jacks
+    if (name.includes('curve') || name.includes('track') || type.includes('rail')) return 220000; // Continuous rail welding, rail grinding, tamping
+    if (name.includes('point') || name.includes('turnout') || name.includes('crossing')) return 175000; // Point machine, tongue rail renewal
+    if (name.includes('catenary') || name.includes('ohe')) return 150000; // OHE tower wagon, contact wire stagger
+    return 200000;
+  };
+
   // Calculate decay rate based on physical asset physics and materials
   const getAssetBaseDecayRate = (asset: Asset): number => {
     const name = asset.name.toLowerCase();
@@ -191,21 +217,37 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
     const baseDecayRate = getAssetBaseDecayRate(asset);
     const effectiveDecayRate = Number((baseDecayRate * trafficTonnageMultiplier).toFixed(2));
 
+    let monthsToThreshold = 12;
+    let thresholdBreachedDate = monthLabels[12]?.fullDate || 'October 2027';
+    let thresholdBreachedMonthLabel = monthLabels[12]?.label || 'M+12';
     let monthsTo70 = 12;
     let monthsTo55 = 12;
-    let plannedMaintenanceMonth = 4; // default scheduled intervention month
 
-    // Determine when unmitigated health falls below 70% and 55%
+    // Determine when unmitigated health falls below user alertThreshold, 70%, and 55%
     for (let m = 1; m <= 12; m++) {
       // Non-linear wear acceleration: slight exponential curve as slack accumulates
       const degradation = m * effectiveDecayRate * (1 + m * 0.035);
       const h = Math.max(20, Number((initialHealth - degradation).toFixed(1)));
+      if (h <= alertThreshold && monthsToThreshold === 12) {
+        monthsToThreshold = m;
+        thresholdBreachedDate = monthLabels[m]?.fullDate || `Month ${m}`;
+        thresholdBreachedMonthLabel = monthLabels[m]?.label || `M+${m}`;
+      }
       if (h <= 70 && monthsTo70 === 12) monthsTo70 = m;
       if (h <= 55 && monthsTo55 === 12) monthsTo55 = m;
     }
 
-    // Set planned maintenance month to 1 month before hitting 70% threshold (or month 2 if already low)
-    plannedMaintenanceMonth = initialHealth <= 70 ? 2 : Math.max(1, Math.min(10, monthsTo70 - 1));
+    // If asset initial health is already below user alert threshold at baseline (M+0)
+    if (initialHealth <= alertThreshold) {
+      monthsToThreshold = 0;
+      thresholdBreachedDate = `${monthLabels[0]?.fullDate} (Immediate)`;
+      thresholdBreachedMonthLabel = 'Immediate (M+0)';
+    }
+
+    const daysUntilThreshold = monthsToThreshold * 30;
+
+    // Dynamically set planned maintenance month based on alert threshold
+    const plannedMaintenanceMonth = initialHealth <= alertThreshold ? 1 : Math.max(1, Math.min(10, monthsToThreshold));
 
     // Generate monthly forecast points
     const forecastPoints: MonthlyHealthForecastPoint[] = monthLabels.map(({ index, label, fullDate }) => {
@@ -231,7 +273,7 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
         unmitigatedHealth: unmitigated,
         mitigatedHealth: mitigated,
         optimalThreshold: 80,
-        mandatoryMaintenanceThreshold: 70,
+        mandatoryMaintenanceThreshold: alertThreshold, // dynamically updated via alertThreshold slider
         criticalSafetyFloor: 55,
         isMaintenanceMonth,
       };
@@ -263,14 +305,36 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
 
     const recommendedMonthDate = monthLabels[plannedMaintenanceMonth]?.fullDate || 'February 2027';
 
+    // Urgency level determined by alertThreshold proximity
     const urgencyLevel: 'IMMEDIATE' | 'HIGH' | 'PLANNED' | 'MONITORING' =
-      initialHealth <= 68
+      initialHealth <= alertThreshold
         ? 'IMMEDIATE'
-        : monthsTo70 <= 3
+        : monthsToThreshold <= 2
         ? 'HIGH'
-        : monthsTo70 <= 6
+        : monthsToThreshold <= 5
         ? 'PLANNED'
         : 'MONITORING';
+
+    // -------------------------------------------------------------------------
+    // DYNAMIC REPAIR COST CALCULATION ENGINE
+    // -------------------------------------------------------------------------
+    // Base cost by asset category
+    const baseCost = getBaseRepairCost(asset);
+
+    // Wear severity escalation:
+    // When intervening conservatively (e.g. >= 78% health), minimal work is needed (clean grease, tighten fasteners).
+    // As intervention threshold drops, fatigue micro-cracks propagate exponentially, requiring
+    // structural component renewal, deeper ballast excavation, and extended block curfew penalties.
+    const wearPenaltyPercent = Math.max(
+      0,
+      Number(((78 - alertThreshold) * (alertThreshold < 65 ? 4.8 : 3.8)).toFixed(1))
+    );
+    const wearMultiplier = 1 + wearPenaltyPercent / 100;
+    const estimatedCost = Math.round(baseCost * wearMultiplier * trafficTonnageMultiplier);
+    const wearSurcharge = estimatedCost - Math.round(baseCost * trafficTonnageMultiplier);
+    const deferredCostPenalty = Math.round(estimatedCost * 1.35); // 35% extra surcharge if deferred past threshold
+    const failureEmergencyCost = Math.round(baseCost * 2.45 * trafficTonnageMultiplier); // Emergency derailment/failure replacement
+    const projectedSavingsVsFailure = Math.max(0, failureEmergencyCost - estimatedCost);
 
     return {
       asset,
@@ -278,45 +342,60 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
       initialHealth,
       monthlyDecayRate: effectiveDecayRate,
       forecastPoints,
-      monthsUntilMandatoryThreshold: monthsTo70,
+      alertThreshold,
+      monthsUntilThreshold: monthsToThreshold,
+      daysUntilThreshold,
+      thresholdBreachedDate,
+      thresholdBreachedMonthLabel,
+      monthsUntilMandatoryThreshold: monthsToThreshold,
       monthsUntilCriticalFloor: monthsTo55,
       recommendedMaintenanceMonth: recommendedMonthDate,
       recommendedMaintenanceWindowHours: windowHours,
       recommendedInterventionType: interventionType,
       statutoryCode,
       urgencyLevel,
+      // Cost Engine Telemetry
+      baseRepairCost: baseCost,
+      estimatedRepairCost: estimatedCost,
+      wearSurchargeAmount: wearSurcharge,
+      wearPenaltyPercent,
+      deferredCostPenalty,
+      projectedSavingsVsFailure,
     };
-  }, [assets, selectedAssetId, criticalAssets, corridors, trafficTonnageMultiplier, monthLabels]);
+  }, [assets, selectedAssetId, criticalAssets, corridors, trafficTonnageMultiplier, monthLabels, alertThreshold]);
 
-  // Comparative ranking of top critical assets
+  // Comparative ranking of top critical assets using real-time alertThreshold
   const criticalAssetsTable = useMemo(() => {
     return criticalAssets.map((asset) => {
       const initialHealth = asset.healthIndex || 78;
       const rate = getAssetBaseDecayRate(asset) * trafficTonnageMultiplier;
-      let monthsTo70 = 12;
+      let monthsToThreshold = 12;
       for (let m = 1; m <= 12; m++) {
-        if (initialHealth - m * rate * (1 + m * 0.035) <= 70) {
-          monthsTo70 = m;
+        if (initialHealth - m * rate * (1 + m * 0.035) <= alertThreshold) {
+          monthsToThreshold = m;
           break;
         }
+      }
+      if (initialHealth <= alertThreshold) {
+        monthsToThreshold = 0;
       }
       return {
         asset,
         health: initialHealth,
         decayRate: Number(rate.toFixed(2)),
-        monthsTo70,
-        forecastCriticalMonth: monthLabels[monthsTo70]?.label || 'M+12',
+        monthsTo70: monthsToThreshold,
+        forecastCriticalMonth: monthLabels[monthsToThreshold]?.label || 'M+12',
         status:
-          initialHealth <= 68
+          initialHealth <= alertThreshold
             ? 'CRITICAL_URGENT'
-            : monthsTo70 <= 3
+            : monthsToThreshold <= 3
             ? 'HIGH_RISK'
-            : monthsTo70 <= 6
+            : monthsToThreshold <= 6
             ? 'PREVENTIVE_WINDOW'
             : 'NORMAL',
       };
     }).sort((a, b) => a.monthsTo70 - b.monthsTo70);
-  }, [criticalAssets, trafficTonnageMultiplier, monthLabels]);
+  }, [criticalAssets, trafficTonnageMultiplier, monthLabels, alertThreshold]);
 
   // Custom Chart Tooltip
   const CustomForecastTooltip = ({ active, payload }: any) => {
@@ -361,8 +440,8 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
                 <span className="text-sky-300">&ge; 80%</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Mandatory Renewal Limit:</span>
-                <span className="text-amber-400">70%</span>
+                <span>Intervention Trigger Floor:</span>
+                <span className="text-amber-400 font-bold">{alertThreshold}%</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Critical Speed Restriction:</span>
@@ -552,6 +631,127 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
         </div>
       </div>
 
+      {/* ==================================================================== */}
+      {/* REAL-TIME ALERT THRESHOLD CONTROLLER SLIDER */}
+      {/* ==================================================================== */}
+      <div className="bg-[#09132b] border border-amber-600/60 rounded-xl p-4 mb-4 shadow-xl relative overflow-hidden">
+        {/* Subtle Ambient Light */}
+        <div className="absolute top-0 right-1/3 w-64 h-24 bg-amber-500/5 rounded-full blur-2xl pointer-events-none" />
+
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-950/90 text-amber-400 border border-amber-600/80 shrink-0 shadow-inner">
+              <Sliders className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-white font-mono uppercase tracking-wide">
+                  Maintenance Alert Threshold (Intervention Point):
+                </span>
+                <span
+                  id="badge-alert-threshold-value"
+                  data-testid="badge-alert-threshold-value"
+                  className="px-2.5 py-0.5 rounded-lg text-xs font-black font-mono bg-amber-950 text-amber-300 border border-amber-500 shadow-md"
+                >
+                  {alertThreshold}% Health Index
+                </span>
+                <span className="text-[11px] font-mono text-slate-300 font-semibold">
+                  {alertThreshold >= 75
+                    ? '• Strict Preventive Regime (Early Action, Lowest Cost)'
+                    : alertThreshold >= 68
+                    ? '• Standard Indian Railways RDSO Para 504 Floor'
+                    : '• High Wear Tolerance (Elevated Repair Surcharge)'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 font-mono mt-1">
+                Drag slider to dynamically adjust the maintenance trigger point. Recalculates the forecasted repair date, track closure window, and expenditure in real time.
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Preset Buttons */}
+          <div className="flex items-center gap-1.5 font-mono text-[10px] shrink-0 self-start lg:self-center">
+            <span className="text-slate-400 mr-1 hidden sm:inline">Presets:</span>
+            <button
+              type="button"
+              id="btn-preset-strict-75"
+              onClick={() => {
+                railwayAudio.playBeep(780, 0.02);
+                setAlertThreshold(75);
+              }}
+              className={`px-2.5 py-1 rounded-lg border transition-all cursor-pointer font-semibold ${
+                alertThreshold === 75
+                  ? 'bg-amber-500 text-slate-950 font-black border-amber-400 shadow-md'
+                  : 'bg-slate-900 text-slate-300 border-slate-700 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              Strict (75%)
+            </button>
+            <button
+              type="button"
+              id="btn-preset-rdso-70"
+              onClick={() => {
+                railwayAudio.playBeep(720, 0.02);
+                setAlertThreshold(70);
+              }}
+              className={`px-2.5 py-1 rounded-lg border transition-all cursor-pointer font-semibold ${
+                alertThreshold === 70
+                  ? 'bg-amber-500 text-slate-950 font-black border-amber-400 shadow-md'
+                  : 'bg-slate-900 text-slate-300 border-slate-700 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              RDSO Standard (70%)
+            </button>
+            <button
+              type="button"
+              id="btn-preset-wear-62"
+              onClick={() => {
+                railwayAudio.playBeep(660, 0.02);
+                setAlertThreshold(62);
+              }}
+              className={`px-2.5 py-1 rounded-lg border transition-all cursor-pointer font-semibold ${
+                alertThreshold === 62
+                  ? 'bg-amber-500 text-slate-950 font-black border-amber-400 shadow-md'
+                  : 'bg-slate-900 text-slate-300 border-slate-700 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              Extended Wear (62%)
+            </button>
+          </div>
+        </div>
+
+        {/* Range Slider Track */}
+        <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-[10px] font-mono text-rose-400 shrink-0 font-bold">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>Critical Floor (50%)</span>
+          </div>
+
+          <div className="relative flex-1 flex items-center">
+            <input
+              type="range"
+              id="input-alert-threshold-slider"
+              data-testid="input-alert-threshold-slider"
+              min={50}
+              max={85}
+              step={1}
+              value={alertThreshold}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                railwayAudio.playBeep(560 + (val - 50) * 12, 0.012);
+                setAlertThreshold(val);
+              }}
+              className="w-full h-2.5 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-amber-400 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500/70"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-400 shrink-0 font-bold">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Conservative (85%)</span>
+          </div>
+        </div>
+      </div>
+
       {selectedAnalysis && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
           {/* ==================================================================== */}
@@ -624,18 +824,18 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
                       }}
                     />
 
-                    {/* Mandatory Maintenance Interval Reference Line (70%) */}
+                    {/* Dynamic Alert Threshold Reference Line (User Adjusted) */}
                     <ReferenceLine
-                      y={70}
+                      y={alertThreshold}
                       stroke="#f59e0b"
                       strokeDasharray="4 4"
-                      strokeWidth={1.5}
-                      strokeOpacity={0.8}
+                      strokeWidth={2}
                       label={{
-                        value: 'Mandatory Maintenance 70%',
+                        value: `Alert Threshold ${alertThreshold}%`,
                         fill: '#f59e0b',
                         fontSize: 9,
                         fontFamily: 'monospace',
+                        fontWeight: 'bold',
                         position: 'insideBottomLeft',
                       }}
                     />
@@ -684,22 +884,24 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
 
             {/* Bottom Legend Note */}
             <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-2 border-t border-slate-800 px-1 mt-1">
-              <span>Base Wear: ~{selectedAnalysis.monthlyDecayRate}% per month</span>
-              <span className="text-amber-400">
-                Breaches 70% in M+{selectedAnalysis.monthsUntilMandatoryThreshold} · Breaches 55% in M+{selectedAnalysis.monthsUntilCriticalFloor}
+              <span>Base Wear: ~{selectedAnalysis.monthlyDecayRate}% per month · Alert Floor: {alertThreshold}%</span>
+              <span className="text-amber-400 font-bold">
+                {selectedAnalysis.monthsUntilThreshold === 0
+                  ? `Asset currently below ${alertThreshold}% alert floor! Immediate repair required.`
+                  : `Breaches ${alertThreshold}% floor in ${selectedAnalysis.thresholdBreachedMonthLabel} (${selectedAnalysis.thresholdBreachedDate})`}
               </span>
             </div>
           </div>
 
           {/* ==================================================================== */}
-          {/* 2. FORECASTED MAINTENANCE INTERVAL TELEMETRY CARD (1 COL) */}
+          {/* 2. FORECASTED MAINTENANCE INTERVAL & EXPENDITURE SIDEBAR CARD (1 COL) */}
           {/* ==================================================================== */}
-          <div className="bg-[#0b162f] rounded-xl p-4 border border-sky-800/60 font-mono text-xs flex flex-col justify-between">
+          <div className="bg-[#0b162f] rounded-xl p-4 border border-sky-800/60 font-mono text-xs flex flex-col justify-between shadow-xl">
             <div>
               <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
                 <span className="font-bold text-white uppercase flex items-center gap-1.5">
                   <Wrench className="w-4 h-4 text-amber-400" />
-                  <span>Forecasted Interval</span>
+                  <span>Forecasted Repair &amp; Cost</span>
                 </span>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
@@ -714,18 +916,110 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
                 </span>
               </div>
 
-              {/* Current Health vs Critical Window */}
+              {/* Current Health vs Dynamically Forecasted Repair Date */}
               <div className="grid grid-cols-2 gap-2 mb-3">
-                <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400 text-[10px] block">Current Health Index:</span>
-                  <span className="text-xl font-black text-white">{selectedAnalysis.initialHealth}%</span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">Asset Condition: {selectedAnalysis.asset.condition}</span>
+                {/* Tile 1: Current Health */}
+                <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <span className="text-slate-400 text-[10px] block uppercase">Current Health:</span>
+                    <span className="text-xl font-black text-white">{selectedAnalysis.initialHealth}%</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 block mt-1 truncate">
+                    Condition: {selectedAnalysis.asset.condition}
+                  </span>
                 </div>
 
-                <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400 text-[10px] block">Maintenance Ceiling:</span>
-                  <span className="text-xl font-black text-amber-400">M+{selectedAnalysis.monthsUntilMandatoryThreshold}</span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">~{selectedAnalysis.monthsUntilMandatoryThreshold * 30} Days Left</span>
+                {/* Tile 2: Dynamically Forecasted Repair Date */}
+                <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <span className="text-slate-400 text-[10px] block uppercase text-amber-300">
+                      Forecasted Repair Date:
+                    </span>
+                    <span
+                      id="sidebar-forecasted-date"
+                      data-testid="sidebar-forecasted-date"
+                      className="text-base font-black text-amber-400 leading-tight block mt-0.5"
+                    >
+                      {selectedAnalysis.thresholdBreachedMonthLabel}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-300 mt-1 flex items-center justify-between font-bold">
+                    <span>{selectedAnalysis.thresholdBreachedDate.split(' ')[0]}</span>
+                    <span className="text-sky-300">
+                      {selectedAnalysis.monthsUntilThreshold === 0
+                        ? 'OVERDUE'
+                        : `~${selectedAnalysis.daysUntilThreshold}d Left`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* DYNAMIC REPAIR COST TELEMETRY CARD */}
+              <div className="bg-gradient-to-br from-[#0c1a38] to-[#071126] p-3 rounded-xl border border-sky-700/60 mb-3 shadow-inner">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                  <span className="text-[11px] font-bold text-cyan-300 flex items-center gap-1.5 uppercase">
+                    <Coins className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Forecasted Repair Cost</span>
+                  </span>
+                  <span
+                    className={`text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase ${
+                      selectedAnalysis.alertThreshold >= 75
+                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                        : selectedAnalysis.alertThreshold >= 68
+                        ? 'bg-sky-950 text-sky-300 border-sky-700'
+                        : 'bg-rose-950 text-rose-300 border-rose-700 animate-pulse'
+                    }`}
+                  >
+                    {selectedAnalysis.alertThreshold >= 75
+                      ? 'PREVENTIVE'
+                      : selectedAnalysis.alertThreshold >= 68
+                      ? 'STANDARD'
+                      : 'DEEP FATIGUE'}
+                  </span>
+                </div>
+
+                {/* Big Currency Display */}
+                <div className="flex items-baseline justify-between mt-2 mb-1.5">
+                  <span
+                    id="sidebar-forecasted-cost"
+                    data-testid="sidebar-forecasted-cost"
+                    className="text-2xl font-black text-white tracking-tight"
+                  >
+                    ₹{(selectedAnalysis.estimatedRepairCost / 100000).toFixed(2)} Lakhs
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    (₹{selectedAnalysis.estimatedRepairCost.toLocaleString('en-IN')})
+                  </span>
+                </div>
+
+                {/* Cost Breakdown Line Items */}
+                <div className="space-y-1 text-[10px] pt-1.5 border-t border-slate-800/80">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Base Machinery &amp; Gang:</span>
+                    <span className="text-slate-200 font-semibold">
+                      ₹{(selectedAnalysis.baseRepairCost / 100000).toFixed(2)}L
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">
+                      Wear Surcharge ({selectedAnalysis.wearPenaltyPercent}% at {selectedAnalysis.alertThreshold}% floor):
+                    </span>
+                    <span
+                      className={`font-semibold ${
+                        selectedAnalysis.wearSurchargeAmount > 0 ? 'text-amber-400' : 'text-emerald-400'
+                      }`}
+                    >
+                      {selectedAnalysis.wearSurchargeAmount > 0
+                        ? `+₹${(selectedAnalysis.wearSurchargeAmount / 100000).toFixed(2)}L`
+                        : '₹0 (Par Window)'}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between text-emerald-400 font-semibold pt-1 border-t border-slate-800">
+                    <span>Projected Savings vs Emergency Failure:</span>
+                    <span>₹{(selectedAnalysis.projectedSavingsVsFailure / 100000).toFixed(2)}L Saved</span>
+                  </div>
                 </div>
               </div>
 
@@ -737,8 +1031,8 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
                 </div>
 
                 <div className="flex items-center justify-between pt-1 border-t border-slate-800">
-                  <span className="text-slate-400">Optimal Window:</span>
-                  <span className="font-bold text-emerald-400">{selectedAnalysis.recommendedMaintenanceMonth}</span>
+                  <span className="text-slate-400">Intervention Floor:</span>
+                  <span className="font-bold text-amber-400">{alertThreshold}% Health Index</span>
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -757,6 +1051,7 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
             <div className="pt-2 border-t border-slate-800">
               <button
                 type="button"
+                id="btn-schedule-preventive-block-sidebar"
                 onClick={() => {
                   railwayAudio.playBeep(880, 0.05);
                   if (onNavigate) {
@@ -810,7 +1105,7 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
                 <th className="py-2 px-3">Corridor</th>
                 <th className="py-2 px-3">Current Health</th>
                 <th className="py-2 px-3">Monthly Wear</th>
-                <th className="py-2 px-3">Mandatory Limit Breached</th>
+                <th className="py-2 px-3">Alert Limit Breached ({alertThreshold}%)</th>
                 <th className="py-2 px-3">Forecasted Window</th>
                 <th className="py-2 px-3 text-right">Action</th>
               </tr>
@@ -875,7 +1170,7 @@ export const PredictiveAssetHealthChart: React.FC<PredictiveAssetHealthChartProp
                             : 'bg-emerald-950 text-emerald-300 border-emerald-800'
                         }`}
                       >
-                        {status === 'CRITICAL_URGENT' ? 'Already &le; 70%' : `Month +${monthsTo70}`}
+                        {status === 'CRITICAL_URGENT' ? `Already \u2264 ${alertThreshold}%` : `Month +${monthsTo70}`}
                       </span>
                     </td>
 

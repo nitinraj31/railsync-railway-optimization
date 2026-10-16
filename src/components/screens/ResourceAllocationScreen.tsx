@@ -40,6 +40,7 @@ import {
   CalendarClock,
   LayoutGrid,
   List,
+  Timer,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -94,6 +95,7 @@ import { predictiveLinearRegressionService } from '../../services/predictiveLine
 import { DynamicResourceLegend } from './DynamicResourceLegend';
 import { OptimizedShiftModal } from '../modals/OptimizedShiftModal';
 import { ResourceGanttTimeline } from './ResourceGanttTimeline';
+import { MaintenanceGangEfficiencyWidget } from '../corridor/MaintenanceGangEfficiencyWidget';
 
 interface ResourceAllocationScreenProps {
   corridors: Corridor[];
@@ -104,13 +106,13 @@ interface ResourceAllocationScreenProps {
   onNavigateToConflicts?: () => void;
   initialResourceType?: string;
   initialCorridorId?: string;
-  initialTab?: 'MACHINERY' | 'MANPOWER' | 'TIMELINE' | 'FATIGUE' | 'FORECAST';
+  initialTab?: 'MACHINERY' | 'MANPOWER' | 'TIMELINE' | 'FATIGUE' | 'FORECAST' | 'EFFICIENCY';
   initialShift?: 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
 }
 
 type ChartViewMode = 'MANPOWER_TRADES' | 'MACHINERY_CLASSES' | 'UTILIZATION_LOAD';
 type ShiftType = 'DAY_SHIFT' | 'AFTERNOON_SHIFT' | 'NIGHT_MEGA_BLOCK';
-type ActiveTab = 'MACHINERY' | 'MANPOWER' | 'TIMELINE' | 'FATIGUE' | 'FORECAST';
+type ActiveTab = 'MACHINERY' | 'MANPOWER' | 'TIMELINE' | 'FATIGUE' | 'FORECAST' | 'EFFICIENCY';
 
 export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> = ({
   corridors,
@@ -824,6 +826,29 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
 
           {/* Action Toolbar */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Maintenance Gang Efficiency Audit Button */}
+            <button
+              id="header-gang-efficiency-btn"
+              data-testid="header-gang-efficiency-btn"
+              onClick={() => {
+                setActiveTab('EFFICIENCY');
+                const el = document.getElementById('fleet-roster-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer ${
+                activeTab === 'EFFICIENCY'
+                  ? 'bg-cyan-950/90 text-cyan-200 border-cyan-500 shadow-lg shadow-cyan-950/60'
+                  : 'bg-slate-900 hover:bg-slate-800 text-cyan-300 hover:text-cyan-200 border-cyan-900/60'
+              }`}
+              title="Audit Maintenance Gang Efficiency: Compare planned vs actual execution time taken for track blocks by each gang"
+            >
+              <Timer className="w-4 h-4 text-cyan-400" />
+              <span>Gang Efficiency Audit</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
+                PLANNED VS ACTUAL
+              </span>
+            </button>
+
             {/* Resource Gantt Timeline Button */}
             <button
               id="header-resource-gantt-btn"
@@ -1934,6 +1959,23 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
                 GAP ENGINE
               </span>
             </button>
+
+            <button
+              id="tab-gang-efficiency"
+              data-testid="tab-gang-efficiency"
+              onClick={() => setActiveTab('EFFICIENCY')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer ${
+                activeTab === 'EFFICIENCY'
+                  ? 'bg-cyan-600 text-white shadow-sm'
+                  : 'bg-slate-800/60 text-cyan-300 hover:text-cyan-200 hover:bg-slate-800'
+              }`}
+            >
+              <Timer className="w-4 h-4 text-cyan-400" />
+              <span>Gang Efficiency ({gangs.length})</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
+                PLANNED VS ACTUAL
+              </span>
+            </button>
           </div>
 
           {/* Search and Filters */}
@@ -2091,7 +2133,16 @@ export const ResourceAllocationScreen: React.FC<ResourceAllocationScreenProps> =
         )}
 
         {/* Table / Module Content */}
-        {activeTab === 'FORECAST' ? (
+        {activeTab === 'EFFICIENCY' ? (
+          <div className="p-4 md:p-6 bg-[#080d1e]">
+            <MaintenanceGangEfficiencyWidget
+              gangs={gangs}
+              corridors={corridors}
+              blocks={blocks}
+              onNavigate={onNavigateToTimeline}
+            />
+          </div>
+        ) : activeTab === 'FORECAST' ? (
           <div className="p-4 md:p-6 bg-[#080d1e]">
             <MaintenanceResourceForecastModule
               initialCorridorFilter={filterCorridor !== 'ALL' && filterCorridor !== 'CENTRAL_DEPOT' ? filterCorridor : 'ALL'}
